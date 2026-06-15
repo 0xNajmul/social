@@ -119,6 +119,8 @@ class PostPublisher
 
         ScheduledPost::where('post_variant_id', $variant->id)->update(['status' => 'failed']);
 
+        $this->syncParentStatus($variant);
+
         event(new PostFailed($variant, $result->errorMessage ?? 'Unknown error'));
 
         $this->activity->log(

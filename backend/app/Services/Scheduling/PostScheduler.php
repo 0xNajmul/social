@@ -28,7 +28,7 @@ class PostScheduler
             ]);
 
             foreach ($post->variants as $variant) {
-                $time = $variant->scheduled_at ?? $when ?? $post->scheduled_at ?? now();
+                $time = $when ?? $variant->scheduled_at ?? $post->scheduled_at ?? now();
 
                 $variant->update([
                     'status' => PostStatus::Scheduled,
@@ -68,7 +68,7 @@ class PostScheduler
                 ],
             );
 
-            PublishPostJob::dispatch($variant->id);
+            PublishPostJob::dispatchSync($variant->id);
         }
     }
 

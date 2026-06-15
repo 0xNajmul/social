@@ -1,0 +1,26 @@
+5:29:44 PM [vite] (client) Pre-transform error: Failed to resolve import "./pages/Settings" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/NAJMUL/Desktop/HTML/admin/src/App.jsx:12:21
+  10 |  import Jobs from "./pages/Jobs";
+  11 |  import Profile from "./pages/Profile";
+  12 |  import Settings from "./pages/Settings";
+     |                        ^
+  13 |  var _jsxFileName = "C:/Users/NAJMUL/Desktop/HTML/admin/src/App.jsx";
+  14 |  import { jsxDEV as _jsxDEV } from "react/jsx-dev-runtime";
+5:29:44 PM [vite] Internal server error: Failed to resolve import "./pages/Settings" from "src/App.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/NAJMUL/Desktop/HTML/admin/src/App.jsx:12:21
+  10 |  import Jobs from "./pages/Jobs";
+  11 |  import Profile from "./pages/Profile";
+  12 |  import Settings from "./pages/Settings";
+     |                        ^
+  13 |  var _jsxFileName = "C:/Users/NAJMUL/Desktop/HTML/admin/src/App.jsx";
+  14 |  import { jsxDEV as _jsxDEV } from "react/jsx-dev-runtime";
+      at TransformPluginContext._formatLog (file:///C:/Users/NAJMUL/Desktop/HTML/admin/node_modules/vite/dist/node/chunks/node.js:30602:39)
+      at TransformPluginContext.error (file:///C:/Users/NAJMUL/Desktop/HTML/admin/node_modules/vite/dist/node/chunks/node.js:30599:14)
+      at normalizeUrl (file:///C:/Users/NAJMUL/Desktop/HTML/admin/node_modules/vite/dist/node/chunks/node.js:27842:18)
+      at async file:///C:/Users/NAJMUL/Desktop/HTML/admin/node_modules/vite/dist/node/chunks/node.js:27905:30
+      at async Promise.all (index 11)
+      at async TransformPluginContext.transform (file:///C:/Users/NAJMUL/Desktop/HTML/admin/node_modules/vite/dist/node/chunks/node.js:27873:4)
+      at async EnvironmentPluginContainer.transform (file:///C:/Users/NAJMUL/Desktop/HTML/admin/node_modules/vite/dist/node/chunks/node.js:30387:14)
+      at async loadAndTransform (file:///C:/Users/NAJMUL/Desktop/HTML/admin/node_modules/vite/dist/node/chunks/node.js:24646:26)

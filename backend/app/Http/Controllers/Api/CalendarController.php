@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\PostStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PostResource;
 use App\Models\Post;
@@ -20,8 +21,8 @@ class CalendarController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $from = $request->date('from') ?? now()->startOfMonth();
-        $to = $request->date('to') ?? now()->endOfMonth();
+        $from = ($request->date('from') ?? now()->startOfMonth())->startOfDay();
+        $to = ($request->date('to') ?? now()->endOfMonth())->endOfDay();
 
         $posts = workspace()->posts()
             ->with(['variants.socialAccount', 'media'])
@@ -40,6 +41,12 @@ class CalendarController extends Controller
     public function reschedule(Request $request, Post $post): JsonResponse
     {
         $this->authorize('publish', $post);
+
+        if (in_array($post->status, [PostStatus::Published, PostStatus::Publishing], true)) {
+            return response()->json([
+                'message' => 'Published or currently publishing posts cannot be rescheduled.',
+            ], 422);
+        }
 
         $data = $request->validate([
             'scheduled_at' => ['required', 'date'],

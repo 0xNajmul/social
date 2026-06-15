@@ -75,6 +75,22 @@ abstract class AbstractPlatformService implements SocialPublisher
             return PublishResult::failure(implode(' ', $errors), retryable: false);
         }
 
+        if ($account->isExpired() || $account->isExpiringSoon()) {
+            $profile = $this->refreshToken($account);
+
+            if ($profile?->accessToken) {
+                $account->update([
+                    'access_token' => $profile->accessToken,
+                    'refresh_token' => $profile->refreshToken ?? $account->refresh_token,
+                    'token_meta' => array_merge($account->token_meta ?? [], $profile->tokenMeta),
+                    'token_expires_at' => $profile->expiresAt ?? $account->token_expires_at,
+                    'status' => 'active',
+                    'status_message' => null,
+                ]);
+                $account->refresh();
+            }
+        }
+
         if ($account->isExpired()) {
             return PublishResult::failure(
                 "The {$this->label()} access token has expired. Please reconnect the account.",

@@ -21,7 +21,10 @@ class PlanResource extends JsonResource
             'price_yearly' => $this->price_yearly / 100,
             'currency' => $this->currency,
             'trial_days' => $this->trial_days,
+            'is_active' => $this->is_active,
             'is_featured' => $this->is_featured,
+            'sort_order' => $this->sort_order,
+            'subscriptions_count' => $this->whenCounted('subscriptions'),
             'limits' => [
                 'workspaces' => $this->max_workspaces,
                 'team_members' => $this->max_team_members,

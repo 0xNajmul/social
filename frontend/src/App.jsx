@@ -18,6 +18,10 @@ import Team from './pages/Team'
 import Billing from './pages/Billing'
 import Settings from './pages/Settings'
 import Developer from './pages/Developer'
+import Profile from './pages/Profile'
+import Planner from './pages/Planner'
+import Workspaces from './pages/Workspaces'
+import InvitationAccept from './pages/InvitationAccept'
 
 export default function App() {
   return (
@@ -28,6 +32,7 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/invitations/:token" element={<ProtectedRoute><InvitationAccept /></ProtectedRoute>} />
 
             <Route
               path="/app"
@@ -38,8 +43,10 @@ export default function App() {
               }
             >
               <Route index element={<Dashboard />} />
+              <Route path="workspaces" element={<Workspaces />} />
               <Route path="composer" element={<Composer />} />
               <Route path="calendar" element={<Calendar />} />
+              <Route path="planner" element={<Planner />} />
               <Route path="accounts" element={<Accounts />} />
               <Route path="media" element={<Media />} />
               <Route path="automations" element={<Automations />} />
@@ -48,6 +55,7 @@ export default function App() {
               <Route path="billing" element={<Billing />} />
               <Route path="settings" element={<Settings />} />
               <Route path="developer" element={<Developer />} />
+              <Route path="profile" element={<Profile />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

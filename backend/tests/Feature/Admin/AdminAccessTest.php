@@ -32,9 +32,10 @@ class AdminAccessTest extends TestCase
 
         $response->assertOk()
             ->assertJsonStructure([
-                'stats' => ['users', 'workspaces', 'mrr_cents', 'active_subscriptions'],
+                'stats' => ['users', 'workspaces', 'active_subscriptions'],
+                'revenue' => ['mrr', 'arr', 'currency'],
                 'signups',
-                'plans',
+                'plan_distribution',
                 'health',
             ]);
     }

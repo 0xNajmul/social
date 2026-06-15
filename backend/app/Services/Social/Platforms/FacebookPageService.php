@@ -10,8 +10,6 @@ use Illuminate\Support\Facades\Http;
 
 class FacebookPageService extends AbstractPlatformService
 {
-    protected string $graphVersion = 'v21.0';
-
     public function key(): string
     {
         return 'facebook_page';
@@ -19,10 +17,27 @@ class FacebookPageService extends AbstractPlatformService
 
     protected function publishToPlatform(SocialAccount $account, PublishPayload $payload): PublishResult
     {
+        $credentials = $this->credentials();
+        $requiredScopes = $credentials['scopes'] ?? ['pages_read_engagement', 'pages_manage_posts'];
+        $grantedScopes = data_get($account->token_meta, 'scopes', []);
+        $permissionsVerifiedAt = data_get($account->token_meta, 'permissions_verified_at');
+        $missingScopes = array_values(array_diff($requiredScopes, $grantedScopes));
+
+        if (! $permissionsVerifiedAt || $missingScopes) {
+            $details = $missingScopes ? ' Missing: '.implode(', ', $missingScopes).'.' : '';
+
+            return PublishResult::failure(
+                'Reconnect this Facebook Page to verify publishing permissions.'.$details,
+                ['missing_permissions' => $missingScopes],
+                retryable: false,
+            );
+        }
+
         // The page access token is stored in token_meta after OAuth.
         $pageToken = data_get($account->token_meta, 'page_access_token', $account->access_token);
         $pageId = $account->provider_account_id;
-        $base = "https://graph.facebook.com/{$this->graphVersion}/{$pageId}";
+        $graphVersion = $credentials['graph_version'] ?? 'v21.0';
+        $base = "https://graph.facebook.com/{$graphVersion}/{$pageId}";
 
         $firstImage = collect($payload->media)->first(fn ($m) => $m->isImage());
 
@@ -34,7 +49,7 @@ class FacebookPageService extends AbstractPlatformService
                     'access_token' => $pageToken,
                 ]);
         } else {
-            $response = Http::post("{$base}/feed", array_filter([
+            $response = Http::asForm()->post("{$base}/feed", array_filter([
                 'message' => $payload->content,
                 'link' => $payload->link,
                 'access_token' => $pageToken,
@@ -42,9 +57,17 @@ class FacebookPageService extends AbstractPlatformService
         }
 
         if (! $response->successful()) {
+            $errorCode = (int) $response->json('error.code');
+            $message = $response->json('error.message') ?? 'Facebook Graph API error';
+
+            if ($errorCode === 200) {
+                $message = 'Facebook denied publishing permission. Add pages_manage_posts and pages_read_engagement to the Meta login configuration, then reconnect this Page.';
+            }
+
             return PublishResult::failure(
-                $response->json('error.message') ?? 'Facebook Graph API error',
+                $message,
                 $response->json() ?? [],
+                retryable: ! in_array($errorCode, [100, 190, 200], true),
             );
         }
 
@@ -64,7 +87,8 @@ class FacebookPageService extends AbstractPlatformService
         }
 
         $token = data_get($account->token_meta, 'page_access_token', $account->access_token);
-        $response = Http::get("https://graph.facebook.com/{$this->graphVersion}/{$providerPostId}", [
+        $graphVersion = $this->credentials()['graph_version'] ?? 'v21.0';
+        $response = Http::get("https://graph.facebook.com/{$graphVersion}/{$providerPostId}", [
             'fields' => 'likes.summary(true),comments.summary(true),shares',
             'access_token' => $token,
         ]);

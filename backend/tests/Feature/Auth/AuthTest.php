@@ -4,6 +4,8 @@ namespace Tests\Feature\Auth;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\InteractsWithApi;
 use Tests\TestCase;
 
@@ -64,6 +66,50 @@ class AuthTest extends TestCase
         $response = $this->getJson('/api/me');
 
         $response->assertOk()
-            ->assertJsonPath('data.email', $user->email);
+            ->assertJsonPath('user.email', $user->email);
+    }
+
+    public function test_authenticated_user_can_update_profile(): void
+    {
+        $user = $this->actingAsUser();
+
+        $response = $this->postJson('/api/profile', [
+            'name' => 'Updated Name',
+            'email' => 'updated@example.com',
+            'timezone' => 'Asia/Dhaka',
+            'locale' => 'bn',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('user.name', 'Updated Name')
+            ->assertJsonPath('user.email', 'updated@example.com');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'name' => 'Updated Name',
+            'email' => 'updated@example.com',
+            'timezone' => 'Asia/Dhaka',
+            'locale' => 'bn',
+        ]);
+    }
+
+    public function test_authenticated_user_can_upload_an_avatar(): void
+    {
+        Storage::fake('public');
+        $user = $this->actingAsUser();
+
+        $response = $this->post('/api/profile', [
+            'name' => $user->name,
+            'email' => $user->email,
+            'timezone' => 'UTC',
+            'locale' => 'en',
+            'avatar' => UploadedFile::fake()->image('avatar.jpg', 300, 300),
+        ], ['Accept' => 'application/json']);
+
+        $response->assertOk();
+
+        $user->refresh();
+        $this->assertNotNull($user->avatar_path);
+        Storage::disk('public')->assertExists($user->avatar_path);
     }
 }

@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\AdminJobController;
 use App\Http\Controllers\Api\Admin\AdminPlanController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminWorkspaceController;
+use App\Http\Controllers\Api\Admin\AdminSettingController;
 use App\Http\Controllers\Api\AiController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuthController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Api\DeveloperController;
 use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\Api\MediaFolderController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\OAuthController;
 use App\Http\Controllers\Api\PostController;
 use App\Http\Controllers\Api\SocialAccountController;
 use App\Http\Controllers\Api\TeamController;
@@ -30,6 +32,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('register', [AuthController::class, 'register']);
 Route::post('login', [AuthController::class, 'login']);
 Route::get('plans', [BillingController::class, 'plans']); // public pricing page
+Route::get('oauth/{provider}/callback', [OAuthController::class, 'callback']);
 
 /*
 |--------------------------------------------------------------------------
@@ -39,6 +42,7 @@ Route::get('plans', [BillingController::class, 'plans']); // public pricing page
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('me', [AuthController::class, 'me']);
+    Route::post('profile', [AuthController::class, 'updateProfile']);
 
     // Notifications (user scoped, no workspace required).
     Route::get('notifications', [NotificationController::class, 'index']);
@@ -59,6 +63,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('workspace')->group(function () {
         Route::get('workspace', [WorkspaceController::class, 'show']);
         Route::put('workspace', [WorkspaceController::class, 'update']);
+        Route::delete('workspace', [WorkspaceController::class, 'destroy']);
+        Route::post('workspace/leave', [WorkspaceController::class, 'leave']);
         Route::get('dashboard', [DashboardController::class, 'index']);
 
         // Team
@@ -66,11 +72,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('team/invite', [TeamController::class, 'invite']);
         Route::put('team/{user}/role', [TeamController::class, 'updateRole']);
         Route::delete('team/{user}', [TeamController::class, 'removeMember']);
+        Route::post('team/invitations/{invitation}/resend', [TeamController::class, 'resendInvitation']);
+        Route::delete('team/invitations/{invitation}', [TeamController::class, 'cancelInvitation']);
 
         // Social accounts
         Route::get('social/platforms', [SocialAccountController::class, 'platforms']);
         Route::get('social/accounts', [SocialAccountController::class, 'index']);
         Route::post('social/accounts/connect', [SocialAccountController::class, 'connect']);
+        Route::get('social/accounts/{socialAccount}/creator-info', [SocialAccountController::class, 'creatorInfo']);
         Route::post('social/accounts/{socialAccount}/refresh', [SocialAccountController::class, 'refresh']);
         Route::delete('social/accounts/{socialAccount}', [SocialAccountController::class, 'destroy']);
 
@@ -128,6 +137,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('dashboard', [AdminDashboardController::class, 'index']);
 
         Route::get('users', [AdminUserController::class, 'index']);
+        Route::post('users', [AdminUserController::class, 'store']);
         Route::get('users/{user}', [AdminUserController::class, 'show']);
         Route::put('users/{user}', [AdminUserController::class, 'update']);
         Route::post('users/{user}/impersonate', [AdminUserController::class, 'impersonationToken']);
@@ -136,7 +146,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('plans', AdminPlanController::class)->except(['show']);
 
         Route::get('workspaces', [AdminWorkspaceController::class, 'index']);
+        Route::post('workspaces', [AdminWorkspaceController::class, 'store']);
         Route::get('workspaces/{workspace}', [AdminWorkspaceController::class, 'show']);
+        Route::put('workspaces/{workspace}', [AdminWorkspaceController::class, 'update']);
+        Route::delete('workspaces/{workspace}', [AdminWorkspaceController::class, 'destroy']);
+
+        Route::get('settings', [AdminSettingController::class, 'index']);
+        Route::put('settings', [AdminSettingController::class, 'update']);
 
         Route::get('jobs/scheduled', [AdminJobController::class, 'scheduled']);
         Route::get('jobs/failed-posts', [AdminJobController::class, 'failedPosts']);

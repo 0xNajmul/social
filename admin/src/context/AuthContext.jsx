@@ -35,7 +35,7 @@ export function AuthProvider({ children }) {
     setAdmin(null)
   }
 
-  return <AuthContext.Provider value={{ admin, loading, login, logout }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ admin, loading, login, logout, reload: loadMe }}>{children}</AuthContext.Provider>
 }
 
 export const useAuth = () => useContext(AuthContext)

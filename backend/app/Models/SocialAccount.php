@@ -75,4 +75,22 @@ class SocialAccount extends Model
     {
         $query->where('status', 'active');
     }
+
+    /**
+     * Create or update a connection, restoring soft-deleted rows so the unique
+     * index on workspace + platform + provider id is not violated.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @param  array<string, mixed>  $values
+     */
+    public static function upsertConnection(array $attributes, array $values): self
+    {
+        $account = static::withTrashed()->updateOrCreate($attributes, $values);
+
+        if ($account->trashed()) {
+            $account->restore();
+        }
+
+        return $account;
+    }
 }

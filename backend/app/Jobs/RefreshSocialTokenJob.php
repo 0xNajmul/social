@@ -27,6 +27,7 @@ class RefreshSocialTokenJob implements ShouldQueue
             $account->update([
                 'access_token' => $profile->accessToken ?? $account->access_token,
                 'refresh_token' => $profile->refreshToken ?? $account->refresh_token,
+                'token_meta' => array_merge($account->token_meta ?? [], $profile->tokenMeta),
                 'token_expires_at' => $profile->expiresAt ?? $account->token_expires_at,
                 'status' => 'active',
                 'status_message' => null,

@@ -74,16 +74,31 @@ return [
         'client_id' => env('FACEBOOK_CLIENT_ID'),
         'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
         'redirect' => env('FACEBOOK_REDIRECT_URI'),
+        'config_id' => env('FACEBOOK_CONFIG_ID'),
+        'graph_version' => env('FACEBOOK_GRAPH_VERSION', 'v21.0'),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('FACEBOOK_SCOPES', 'pages_show_list,pages_read_engagement,pages_manage_posts')),
+        ))),
     ],
     'instagram' => [
         'client_id' => env('INSTAGRAM_CLIENT_ID'),
         'client_secret' => env('INSTAGRAM_CLIENT_SECRET'),
-        'redirect' => env('INSTAGRAM_REDIRECT_URI'),
+        'redirect' => env('INSTAGRAM_REDIRECT_URI', rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/instagram/callback'),
+        'graph_version' => env('INSTAGRAM_GRAPH_VERSION', 'v21.0'),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('INSTAGRAM_SCOPES', 'instagram_business_basic,instagram_business_content_publish')),
+        ))),
     ],
     'tiktok' => [
         'client_id' => env('TIKTOK_CLIENT_KEY'),
         'client_secret' => env('TIKTOK_CLIENT_SECRET'),
         'redirect' => env('TIKTOK_REDIRECT_URI'),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('TIKTOK_SCOPES', 'user.info.basic,video.publish')),
+        ))),
     ],
     'youtube' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
@@ -98,7 +113,19 @@ return [
     'linkedin' => [
         'client_id' => env('LINKEDIN_CLIENT_ID'),
         'client_secret' => env('LINKEDIN_CLIENT_SECRET'),
-        'redirect' => env('LINKEDIN_REDIRECT_URI'),
+        'redirect' => env(
+            'LINKEDIN_REDIRECT_URI',
+            rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/linkedin/callback',
+        ),
+        'version' => env('LINKEDIN_VERSION', '202606'),
+        'profile_scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('LINKEDIN_PROFILE_SCOPES', 'openid,profile,email,w_member_social')),
+        ))),
+        'page_scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('LINKEDIN_PAGE_SCOPES', 'openid,profile,email,rw_organization_admin,w_organization_social')),
+        ))),
     ],
     'pinterest' => [
         'client_id' => env('PINTEREST_CLIENT_ID'),
@@ -109,6 +136,23 @@ return [
         'client_id' => env('REDDIT_CLIENT_ID'),
         'client_secret' => env('REDDIT_CLIENT_SECRET'),
         'redirect' => env('REDDIT_REDIRECT_URI'),
+    ],
+    'bluesky' => [
+        'pds_url' => rtrim(env('BLUESKY_PDS_URL', 'https://bsky.social'), '/'),
+        'app_password' => env('BLUESKY_APP_PASSWORD'),
+    ],
+    'mastodon' => [
+        'instance' => rtrim(env('MASTODON_INSTANCE_URL', 'https://mastodon.social'), '/'),
+        'client_id' => env('MASTODON_CLIENT_ID'),
+        'client_secret' => env('MASTODON_CLIENT_SECRET'),
+        'redirect' => env(
+            'MASTODON_REDIRECT_URI',
+            rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/mastodon/callback',
+        ),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('MASTODON_SCOPES', 'read:accounts,write:statuses,write:media')),
+        ))),
     ],
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),

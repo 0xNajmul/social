@@ -8,6 +8,7 @@ use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\PlatformSetting;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,7 +21,7 @@ class WorkspaceProvisioner
     {
         return DB::transaction(function () use ($owner, $name, $plan) {
             $plan ??= Plan::where('is_active', true)->orderBy('price_monthly')->first();
-            $trialDays = $plan?->trial_days ?? 14;
+            $trialDays = (int) PlatformSetting::valueFor('default_trial_days', $plan?->trial_days ?? 14);
 
             $workspace = Workspace::create([
                 'owner_id' => $owner->id,

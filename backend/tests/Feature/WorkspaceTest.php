@@ -36,15 +36,14 @@ class WorkspaceTest extends TestCase
 
         $response = $this->postJson('/api/social/accounts/connect', [
             'platform' => 'twitter',
-            'name' => 'My Twitter',
         ], $this->workspaceHeaders($user));
 
         $response->assertCreated()
-            ->assertJsonPath('data.platform', 'twitter');
+            ->assertJsonPath('data.platform', 'twitter')
+            ->assertJsonPath('mode', 'demo');
 
         $this->assertDatabaseHas('social_accounts', [
             'platform' => 'twitter',
-            'name' => 'My Twitter',
         ]);
     }
 
@@ -57,7 +56,7 @@ class WorkspaceTest extends TestCase
 
         $response->assertOk()
             ->assertJsonStructure([
-                'stats' => ['scheduled', 'published', 'failed', 'accounts'],
+                'stats' => ['scheduled', 'published_this_month', 'failed', 'connected_accounts'],
                 'upcoming',
                 'usage',
                 'recent_activity',

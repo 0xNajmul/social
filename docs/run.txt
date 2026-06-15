@@ -1,0 +1,34 @@
+try { (Invoke-WebRequest -Uri "http://127.0.0.1:8000/up" -UseBasicParsing -TimeoutSec 3).StatusCode } catch { "down" }; try { (Invoke-WebRequest -Uri "http://localhost:5173" -UseBasicParsing -TimeoutSec 3).StatusCode } catch { "down" }; try { (Invoke-WebRequest -Uri "http://localhost:5174" -UseBasicParsing -TimeoutSec 3).StatusCode } catch { "down" }
+
+php artisan schedule:work 2>&1
+php artisan queue:work --tries=3 2>&1
+php artisan serve --host=127.0.0.1 --port=8000 2>&1
+npm run dev 2>&1
+
+
+Backend API
+http://127.0.0.1:8000
+Running
+User app
+http://localhost:5173
+Running
+Admin panel
+http://localhost:5174
+Running
+Queue worker
+background
+Running (processing jobs)
+Scheduler
+background
+Running (scheduled tasks)
+
+
+Quick links:
+
+Landing / user dashboard: http://localhost:5173
+Admin console: http://localhost:5174
+API health check: http://127.0.0.1:8000/up
+Demo login:
+
+User: demo@social-automation.test / password
+Admin: admin@social-automation.test / password

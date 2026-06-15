@@ -13,7 +13,7 @@ use App\Services\Billing\UsageGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Enum;
+use Illuminate\Support\Str;
 
 class TeamController extends Controller
 {
@@ -22,14 +22,34 @@ class TeamController extends Controller
         protected ActivityLogger $activity,
     ) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         $workspace = workspace();
         $this->authorize('viewMembers', $workspace);
+        $role = $request->user()->roleIn($workspace);
 
         return response()->json([
             'members' => UserResource::collection($workspace->members()->get()),
-            'invitations' => $workspace->invitations()->whereNull('accepted_at')->get(),
+            'invitations' => $workspace->invitations()
+                ->with('inviter:id,name')
+                ->whereNull('accepted_at')
+                ->latest()
+                ->get()
+                ->map(fn (WorkspaceInvitation $invitation) => [
+                    'id' => $invitation->id,
+                    'email' => $invitation->email,
+                    'role' => $invitation->role,
+                    'expires_at' => $invitation->expires_at,
+                    'created_at' => $invitation->created_at,
+                    'is_expired' => ! $invitation->isPending(),
+                    'invited_by' => $invitation->inviter?->name,
+                ]),
+            'current_user_id' => $request->user()->id,
+            'current_role' => $role?->value,
+            'permissions' => [
+                'can_manage' => $role?->canManageTeam() ?? false,
+                'is_owner' => $workspace->owner_id === $request->user()->id,
+            ],
         ]);
     }
 
@@ -40,14 +60,22 @@ class TeamController extends Controller
         $this->usage->ensure($workspace, 'team_members');
 
         $data = $request->validate([
-            'email' => ['required', 'email', Rule::unique('workspace_invitations')->where('workspace_id', $workspace->id)],
-            'role' => ['required', new Enum(WorkspaceRole::class)],
+            'email' => ['required', 'email'],
+            'role' => ['required', Rule::in($this->assignableRoles($request))],
         ]);
 
-        $invitation = $workspace->invitations()->create([
+        abort_if(
+            $workspace->members()->where('email', $data['email'])->exists(),
+            422,
+            'This person is already a workspace member.',
+        );
+
+        $invitation = $workspace->invitations()->updateOrCreate(['email' => $data['email']], [
             'invited_by' => $request->user()->id,
-            'email' => $data['email'],
             'role' => $data['role'],
+            'token' => Str::random(48),
+            'accepted_at' => null,
+            'expires_at' => now()->addDays(7),
         ]);
 
         $invitation->notify(new WorkspaceInvitationNotification($invitation));
@@ -61,11 +89,14 @@ class TeamController extends Controller
         $workspace = workspace();
         $this->authorize('manageTeam', $workspace);
 
-        $data = $request->validate(['role' => ['required', new Enum(WorkspaceRole::class)]]);
+        $data = $request->validate(['role' => ['required', Rule::in($this->assignableRoles($request))]]);
 
         abort_if($workspace->owner_id === $user->id, 422, "The workspace owner's role cannot be changed.");
+        abort_unless($workspace->members()->whereKey($user->id)->exists(), 404, 'Member not found in this workspace.');
+        $this->ensureCanManageTarget($request, $workspace, $user);
 
         $workspace->members()->updateExistingPivot($user->id, ['role' => $data['role']]);
+        $this->activity->log($workspace->id, 'team.role_updated', $user, "Role changed to {$data['role']}");
 
         return response()->json(['message' => 'Role updated.']);
     }
@@ -76,8 +107,14 @@ class TeamController extends Controller
         $this->authorize('manageTeam', $workspace);
 
         abort_if($workspace->owner_id === $user->id, 422, 'The workspace owner cannot be removed.');
+        abort_unless($workspace->members()->whereKey($user->id)->exists(), 404, 'Member not found in this workspace.');
+        $this->ensureCanManageTarget(request(), $workspace, $user);
 
         $workspace->members()->detach($user->id);
+        if ($user->current_workspace_id === $workspace->id) {
+            $user->forceFill(['current_workspace_id' => $user->workspaces()->value('workspaces.id')])->save();
+        }
+        $this->activity->log($workspace->id, 'team.removed', $user, "Removed {$user->email}");
 
         return response()->json(['message' => 'Member removed.']);
     }
@@ -94,7 +131,60 @@ class TeamController extends Controller
 
         $invitation->workspace->addMember($request->user(), WorkspaceRole::from($invitation->role));
         $invitation->update(['accepted_at' => now()]);
+        $request->user()->forceFill(['current_workspace_id' => $invitation->workspace_id])->save();
 
-        return response()->json(['message' => 'Invitation accepted.']);
+        return response()->json([
+            'message' => 'Invitation accepted.',
+            'workspace_slug' => $invitation->workspace->slug,
+        ]);
+    }
+
+    public function resendInvitation(Request $request, WorkspaceInvitation $invitation): JsonResponse
+    {
+        $workspace = workspace();
+        $this->authorize('manageTeam', $workspace);
+        abort_unless($invitation->workspace_id === $workspace->id && is_null($invitation->accepted_at), 404);
+
+        $invitation->update([
+            'token' => Str::random(48),
+            'expires_at' => now()->addDays(7),
+            'invited_by' => $request->user()->id,
+        ]);
+        $invitation->notify(new WorkspaceInvitationNotification($invitation));
+
+        return response()->json(['message' => 'Invitation resent.']);
+    }
+
+    public function cancelInvitation(WorkspaceInvitation $invitation): JsonResponse
+    {
+        $workspace = workspace();
+        $this->authorize('manageTeam', $workspace);
+        abort_unless($invitation->workspace_id === $workspace->id && is_null($invitation->accepted_at), 404);
+
+        $invitation->delete();
+
+        return response()->json(['message' => 'Invitation cancelled.']);
+    }
+
+    /** @return array<int, string> */
+    protected function assignableRoles(Request $request): array
+    {
+        $roles = [WorkspaceRole::Manager->value, WorkspaceRole::Editor->value, WorkspaceRole::Viewer->value];
+
+        if (workspace()->owner_id === $request->user()->id) {
+            array_unshift($roles, WorkspaceRole::Admin->value);
+        }
+
+        return $roles;
+    }
+
+    protected function ensureCanManageTarget(Request $request, $workspace, User $user): void
+    {
+        $targetRole = $user->roleIn($workspace);
+        abort_if(
+            $targetRole === WorkspaceRole::Admin && $workspace->owner_id !== $request->user()->id,
+            403,
+            'Only the workspace owner can manage administrators.',
+        );
     }
 }

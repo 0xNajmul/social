@@ -53,7 +53,7 @@ return [
         ],
 
         'instagram' => [
-            'label' => 'Instagram Business',
+            'label' => 'Instagram Business & Creator',
             'group' => 'instagram',
             'icon' => 'instagram',
             'color' => '#E4405F',
@@ -109,7 +109,7 @@ return [
             'color' => '#0A66C2',
             'service' => Platforms\LinkedInProfileService::class,
             'capabilities' => ['text', 'image', 'video', 'link', 'schedule', 'analytics'],
-            'limits' => ['text' => 3000, 'images' => 9],
+            'limits' => ['text' => 3000, 'images' => 1],
         ],
 
         'linkedin_page' => [
@@ -119,7 +119,7 @@ return [
             'color' => '#0A66C2',
             'service' => Platforms\LinkedInPageService::class,
             'capabilities' => ['text', 'image', 'video', 'link', 'schedule', 'analytics'],
-            'limits' => ['text' => 3000, 'images' => 9],
+            'limits' => ['text' => 3000, 'images' => 1],
         ],
 
         'pinterest' => [
@@ -168,7 +168,7 @@ return [
             'icon' => 'mastodon',
             'color' => '#6364FF',
             'service' => Platforms\MastodonService::class,
-            'capabilities' => ['text', 'image', 'video'],
+            'capabilities' => ['text', 'image', 'video', 'schedule'],
             'limits' => ['text' => 500, 'images' => 4],
         ],
 

@@ -61,8 +61,7 @@ export function AuthProvider({ children }) {
     workspaceStore.set(slug)
     const ws = workspaces.find((w) => w.slug === slug)
     setActiveWorkspace(ws)
-    const found = workspaces.find((w) => w.slug === slug)
-    if (found) await api.post(`/workspaces/${found.slug}/switch`).catch(() => {})
+    await api.post(`/workspaces/${slug}/switch`).catch(() => {})
   }
 
   return (

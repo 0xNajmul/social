@@ -6,7 +6,6 @@ use App\Enums\MediaType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\Storage;
 
 class MediaAsset extends Model
 {
@@ -44,13 +43,18 @@ class MediaAsset extends Model
 
     public function getUrlAttribute(): string
     {
-        return Storage::disk($this->disk)->url($this->path);
+        // Relative URL so the Vite dev proxy (/storage → Laravel) serves files correctly.
+        return '/storage/'.ltrim(str_replace('\\', '/', $this->path), '/');
     }
 
     public function getThumbnailUrlAttribute(): ?string
     {
-        return $this->thumbnail_path
-            ? Storage::disk($this->disk)->url($this->thumbnail_path)
-            : null;
+        if (! $this->thumbnail_path) {
+            return $this->type === \App\Enums\MediaType::Image || $this->type === \App\Enums\MediaType::Gif
+                ? $this->url
+                : null;
+        }
+
+        return '/storage/'.ltrim(str_replace('\\', '/', $this->thumbnail_path), '/');
     }
 }

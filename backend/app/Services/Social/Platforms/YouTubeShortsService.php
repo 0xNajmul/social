@@ -2,13 +2,10 @@
 
 namespace App\Services\Social\Platforms;
 
-use App\Services\Social\AbstractPlatformService;
-
 /**
- * YouTube Shorts use the same upload pipeline as YouTube with a #Shorts hint
- * and a <= 60s vertical video.
+ * YouTube Shorts share the same upload pipeline with a #Shorts tag applied.
  */
-class YouTubeShortsService extends AbstractPlatformService
+class YouTubeShortsService extends YouTubeService
 {
     public function key(): string
     {

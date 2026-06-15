@@ -16,19 +16,32 @@ use Illuminate\Support\Facades\DB;
  */
 class PostComposer
 {
-    public function __construct(protected SocialManager $manager) {}
+    public function __construct(
+        protected SocialManager $manager,
+        protected PlatformMediaCompatibility $mediaCompatibility,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $data
+     * @return array{post: Post, skipped: array<int, array<string, mixed>>}
      */
-    public function create(Workspace $workspace, int $userId, array $data): Post
+    public function create(Workspace $workspace, int $userId, array $data): array
     {
         return DB::transaction(function () use ($workspace, $userId, $data) {
+            $mediaIds = $data['media_ids'] ?? [];
+            $partition = $this->mediaCompatibility->partitionTargets($data['targets'] ?? [], $mediaIds);
+
+            if ($partition['targets'] === []) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'targets' => ['No selected accounts support this media type. Remove media or choose different platforms.'],
+                ]);
+            }
+
             $post = $workspace->posts()->create([
                 'created_by' => $userId,
                 'title' => $data['title'] ?? null,
                 'content' => $data['content'] ?? null,
-                'type' => $data['type'] ?? 'text',
+                'type' => $data['type'] ?? $this->mediaCompatibility->inferPostType($mediaIds),
                 'status' => PostStatus::Draft,
                 'link_url' => $data['link_url'] ?? null,
                 'hashtags' => $data['hashtags'] ?? null,
@@ -38,10 +51,13 @@ class PostComposer
                 'requires_approval' => $data['requires_approval'] ?? false,
             ]);
 
-            $this->syncMedia($post, $data['media_ids'] ?? []);
-            $this->syncVariants($workspace, $post, $data['targets'] ?? []);
+            $this->syncMedia($post, $mediaIds);
+            $this->syncVariants($workspace, $post, $partition['targets']);
 
-            return $post->load(['variants.socialAccount', 'media']);
+            return [
+                'post' => $post->load(['variants.socialAccount', 'media']),
+                'skipped' => $partition['skipped'],
+            ];
         });
     }
 
@@ -68,7 +84,9 @@ class PostComposer
 
             if (array_key_exists('targets', $data)) {
                 $post->variants()->delete();
-                $this->syncVariants($post->workspace, $post, $data['targets']);
+                $mediaIds = $data['media_ids'] ?? $post->media()->pluck('media_assets.id')->all();
+                $partition = $this->mediaCompatibility->partitionTargets($data['targets'], $mediaIds);
+                $this->syncVariants($post->workspace, $post, $partition['targets']);
             }
 
             return $post->fresh(['variants.socialAccount', 'media']);
@@ -82,6 +100,8 @@ class PostComposer
      */
     public function validate(Post $post): array
     {
+        $post->load(['variants.post.media', 'media']);
+
         $errors = [];
 
         foreach ($post->variants as $variant) {
@@ -121,12 +141,22 @@ class PostComposer
                 continue;
             }
 
+            $platform = $account->platform;
+            $options = $target['options'] ?? [];
+
+            // One YouTube connection — format chosen at compose time.
+            if (in_array($platform, ['youtube', 'youtube_shorts'], true)) {
+                $platform = ($options['youtube_format'] ?? 'video') === 'short'
+                    ? 'youtube_shorts'
+                    : 'youtube';
+            }
+
             $post->variants()->create([
                 'social_account_id' => $account->id,
-                'platform' => $account->platform,
+                'platform' => $platform,
                 'content' => $target['content'] ?? null,
                 'hashtags' => $target['hashtags'] ?? null,
-                'options' => $target['options'] ?? null,
+                'options' => $options ?: null,
                 'status' => PostStatus::Draft,
             ]);
         }

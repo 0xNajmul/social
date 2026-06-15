@@ -20,12 +20,12 @@ class PublishPostJob implements ShouldQueue
 
     public int $tries;
 
-    public int $timeout = 120;
+    /** YouTube resumable uploads can exceed two minutes. */
+    public int $timeout = 900;
 
     public function __construct(public int $variantId)
     {
         $this->tries = (int) config('social.publish_retries', 3);
-        $this->onQueue('publishing');
     }
 
     /**

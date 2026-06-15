@@ -7,12 +7,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StorePostRequest;
 use App\Http\Resources\PostResource;
 use App\Models\Post;
+use App\Models\ScheduledPost;
 use App\Services\ActivityLogger;
 use App\Services\Billing\UsageGuard;
 use App\Services\Posts\PostComposer;
 use App\Services\Scheduling\PostScheduler;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PostController extends Controller
 {
@@ -44,12 +46,21 @@ class PostController extends Controller
         $workspace = workspace();
         $this->usage->ensure($workspace, 'monthly_posts');
 
-        $post = $this->composer->create($workspace, $request->user()->id, $request->validated());
+        $result = $this->composer->create($workspace, $request->user()->id, $request->validated());
+        $post = $result['post'];
         $this->activity->log($workspace->id, 'post.created', $post, 'Draft created');
 
         return response()->json([
             'data' => new PostResource($post),
             'validation' => $this->composer->validate($post),
+            'skipped_targets' => collect($result['skipped'])->map(function ($row) {
+                $account = \App\Models\SocialAccount::find($row['social_account_id'] ?? null);
+
+                return array_merge($row, [
+                    'platform' => $row['platform'] ?? $account?->platform,
+                    'account_name' => $account?->name,
+                ]);
+            })->values(),
         ], 201);
     }
 
@@ -78,7 +89,13 @@ class PostController extends Controller
     public function destroy(Post $post): JsonResponse
     {
         $this->authorize('delete', $post);
-        $post->delete();
+
+        DB::transaction(function () use ($post) {
+            $variantIds = $post->variants()->pluck('id');
+            ScheduledPost::whereIn('post_variant_id', $variantIds)->delete();
+            $post->variants()->delete();
+            $post->delete();
+        });
 
         return response()->json(['message' => 'Post deleted.']);
     }
@@ -115,9 +132,19 @@ class PostController extends Controller
         }
 
         $this->scheduler->publishNow($post);
+        $post = $post->fresh('variants');
+        $failed = $post->variants->where('status', PostStatus::Failed);
+
+        if ($failed->isNotEmpty()) {
+            return response()->json([
+                'message' => $failed->first()->error_message ?? 'One or more platforms failed to publish.',
+                'data' => new PostResource($post),
+            ], 422);
+        }
+
         $this->activity->log($post->workspace_id, 'post.publish_now', $post, 'Publishing now');
 
-        return response()->json(['data' => new PostResource($post->fresh('variants'))]);
+        return response()->json(['data' => new PostResource($post)]);
     }
 
     public function cancel(Post $post): JsonResponse
@@ -155,6 +182,10 @@ class PostController extends Controller
     {
         $this->authorize('update', $post);
 
+        if ($errors = $this->composer->validate($post)) {
+            return response()->json(['message' => 'Validation failed', 'validation' => $errors], 422);
+        }
+
         $post->update(['status' => PostStatus::PendingApproval, 'requires_approval' => true]);
         $post->approval()->create([
             'requested_by' => $request->user()->id,
@@ -183,9 +214,17 @@ class PostController extends Controller
             'reviewed_at' => now(),
         ]);
 
-        $post->update([
-            'status' => $data['decision'] === 'approved' ? PostStatus::Approved : PostStatus::Draft,
-        ]);
+        $approved = $data['decision'] === 'approved';
+        $post->update(['status' => $approved ? PostStatus::Approved : PostStatus::Draft]);
+
+        if ($approved) {
+            $action = $post->options['approval_action'] ?? null;
+            if ($action === 'schedule' && $post->scheduled_at?->isFuture()) {
+                $this->scheduler->schedule($post->load('variants'), $post->scheduled_at);
+            } elseif ($action === 'publish') {
+                $this->scheduler->publishNow($post->load('variants'));
+            }
+        }
 
         $this->activity->log($post->workspace_id, "post.{$data['decision']}", $post, $data['note'] ?? '');
 

@@ -9,6 +9,7 @@ use App\Services\Billing\UsageGuard;
 use App\Services\WorkspaceProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class WorkspaceController extends Controller
 {
@@ -34,6 +35,14 @@ class WorkspaceController extends Controller
             'timezone' => ['nullable', 'string', 'timezone'],
         ]);
 
+        $referenceWorkspace = $request->user()->ownedWorkspaces()->with('subscription.plan')->first();
+        $limit = $referenceWorkspace?->subscription?->plan?->limit('workspaces');
+        abort_if(
+            ! is_null($limit) && $request->user()->ownedWorkspaces()->count() >= $limit,
+            422,
+            'Your current plan does not allow another workspace.',
+        );
+
         $workspace = $this->provisioner->create($request->user(), $data['name']);
 
         if (! empty($data['timezone'])) {
@@ -49,10 +58,16 @@ class WorkspaceController extends Controller
     {
         $workspace = workspace()->load(['subscription.plan'])
             ->loadCount(['members', 'socialAccounts']);
+        $role = $request->user()->roleIn($workspace);
 
         return response()->json([
             'data' => new WorkspaceResource($workspace),
             'usage' => $this->usage->usage($workspace),
+            'current_role' => $role?->value,
+            'permissions' => [
+                'can_update' => $role?->canManageTeam() ?? false,
+                'is_owner' => $workspace->owner_id === $request->user()->id,
+            ],
         ]);
     }
 
@@ -71,6 +86,36 @@ class WorkspaceController extends Controller
         $workspace->update($data);
 
         return response()->json(['data' => new WorkspaceResource($workspace)]);
+    }
+
+    public function destroy(Request $request): JsonResponse
+    {
+        $workspace = workspace();
+        $this->authorize('delete', $workspace);
+
+        DB::transaction(function () use ($workspace) {
+            foreach ($workspace->members()->get() as $member) {
+                if ($member->current_workspace_id === $workspace->id) {
+                    $nextWorkspaceId = $member->workspaces()->where('workspaces.id', '!=', $workspace->id)->value('workspaces.id');
+                    $member->forceFill(['current_workspace_id' => $nextWorkspaceId])->save();
+                }
+            }
+            $workspace->delete();
+        });
+
+        return response()->json(['message' => 'Workspace deleted.']);
+    }
+
+    public function leave(Request $request): JsonResponse
+    {
+        $workspace = workspace();
+        abort_if($workspace->owner_id === $request->user()->id, 422, 'Transfer ownership or delete the workspace instead.');
+
+        $workspace->members()->detach($request->user()->id);
+        $nextWorkspaceId = $request->user()->workspaces()->value('workspaces.id');
+        $request->user()->forceFill(['current_workspace_id' => $nextWorkspaceId])->save();
+
+        return response()->json(['message' => 'You left the workspace.']);
     }
 
     /**
