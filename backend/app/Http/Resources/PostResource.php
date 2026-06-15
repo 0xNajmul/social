@@ -27,6 +27,7 @@ class PostResource extends JsonResource
             'requires_approval' => $this->requires_approval,
             'scheduled_at' => $this->scheduled_at,
             'published_at' => $this->published_at,
+            'workspace' => new WorkspaceResource($this->whenLoaded('workspace')),
             'author' => new UserResource($this->whenLoaded('author')),
             'variants' => PostVariantResource::collection($this->whenLoaded('variants')),
             'media' => MediaResource::collection($this->whenLoaded('media')),

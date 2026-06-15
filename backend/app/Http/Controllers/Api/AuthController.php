@@ -13,7 +13,9 @@ use App\Services\WorkspaceProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -80,6 +82,94 @@ class AuthController extends Controller
         ]);
     }
 
+    public function googleRedirect(Request $request): JsonResponse
+    {
+        $clientId = config('services.google_login.client_id');
+        $redirect = config('services.google_login.redirect');
+
+        abort_unless($clientId && $redirect, 422, 'Google login credentials are not configured.');
+
+        $state = rtrim(strtr(base64_encode(json_encode([
+            'admin' => $request->boolean('admin'),
+            'nonce' => Str::random(32),
+        ])), '+/', '-_'), '=');
+
+        $url = 'https://accounts.google.com/o/oauth2/v2/auth?'.http_build_query([
+            'client_id' => $clientId,
+            'redirect_uri' => $redirect,
+            'response_type' => 'code',
+            'scope' => 'openid email profile',
+            'state' => $state,
+            'prompt' => 'select_account',
+        ]);
+
+        return response()->json(['url' => $url]);
+    }
+
+    public function googleCallback(Request $request)
+    {
+        $state = json_decode(base64_decode(strtr((string) $request->query('state'), '-_', '+/')), true) ?: [];
+        $adminFlow = (bool) ($state['admin'] ?? false);
+        $frontendRedirect = $adminFlow ? config('services.google_login.admin_redirect') : config('services.google_login.frontend_redirect');
+
+        if ($request->query('error')) {
+            return redirect($frontendRedirect.'?google_error='.urlencode((string) $request->query('error')));
+        }
+
+        if (! $request->query('code')) {
+            return redirect($frontendRedirect.'?google_error=missing_code');
+        }
+
+        $tokenResponse = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+            'client_id' => config('services.google_login.client_id'),
+            'client_secret' => config('services.google_login.client_secret'),
+            'redirect_uri' => config('services.google_login.redirect'),
+            'grant_type' => 'authorization_code',
+            'code' => $request->query('code'),
+        ]);
+
+        if (! $tokenResponse->successful()) {
+            return redirect($frontendRedirect.'?google_error=token_exchange_failed');
+        }
+
+        $profileResponse = Http::withToken($tokenResponse->json('access_token'))->get('https://www.googleapis.com/oauth2/v3/userinfo');
+
+        if (! $profileResponse->successful() || ! $profileResponse->json('email')) {
+            return redirect($frontendRedirect.'?google_error=profile_failed');
+        }
+
+        $email = strtolower((string) $profileResponse->json('email'));
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
+            if (! PlatformSetting::valueFor('registration_enabled', true)) {
+                return redirect($frontendRedirect.'?google_error=registration_disabled');
+            }
+
+            $user = User::create([
+                'name' => $profileResponse->json('name') ?: Str::before($email, '@'),
+                'email' => $email,
+                'password' => Hash::make(Str::random(40)),
+                'timezone' => 'UTC',
+            ]);
+            $workspace = $this->provisioner->create($user, "{$user->name}'s Workspace");
+            $this->activity->log($workspace->id, 'user.registered_google', $user, 'Account created with Google', userId: $user->id);
+        }
+
+        if ($adminFlow && ! $user->is_admin) {
+            return redirect($frontendRedirect.'?google_error=not_admin');
+        }
+
+        $user->forceFill([
+            'last_login_at' => now(),
+            'last_login_ip' => $request->ip(),
+        ])->save();
+
+        $token = $user->createToken($adminFlow ? 'admin-google-login' : 'google-login')->plainTextToken;
+
+        return redirect($frontendRedirect.'?google_token='.urlencode($token));
+    }
+
     /**
      * Revoke the current access token.
      */
@@ -140,5 +230,26 @@ class AuthController extends Controller
             'message' => 'Profile updated.',
             'user' => new UserResource($user->fresh()),
         ]);
+    }
+
+    public function updatePassword(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        if (! Hash::check($data['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['The current password is incorrect.'],
+            ]);
+        }
+
+        $user->forceFill([
+            'password' => Hash::make($data['password']),
+        ])->save();
+
+        return response()->json(['message' => 'Password updated.']);
     }
 }

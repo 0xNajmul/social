@@ -138,8 +138,8 @@ return [
             'icon' => 'reddit',
             'color' => '#FF4500',
             'service' => Platforms\RedditService::class,
-            'capabilities' => ['text', 'image', 'link'],
-            'limits' => ['text' => 40000],
+            'capabilities' => ['text', 'image', 'link', 'schedule', 'delete', 'analytics'],
+            'limits' => ['text' => 40000, 'images' => 1, 'title' => 300],
         ],
 
         'threads' => [

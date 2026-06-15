@@ -26,7 +26,7 @@ class AdminUserController extends Controller
     public function show(User $user): JsonResponse
     {
         return response()->json([
-            'data' => new UserResource($user->load('workspaces')),
+            'data' => new UserResource($user->load('workspaces.subscription.plan')),
         ]);
     }
 

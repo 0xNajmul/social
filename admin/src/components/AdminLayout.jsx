@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Building2, ChevronDown, LayoutDashboard, ListChecks, LogOut, Menu, Package, Settings, ShieldAlert, UserRound, Users, X } from 'lucide-react'
+import { Building2, ChevronDown, LayoutDashboard, ListChecks, LogOut, Menu, Package, Settings, ShieldAlert, UserRound, Users, X, Send } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import NotificationMenu from './NotificationMenu'
+import PanelSearch from './PanelSearch'
 
 const NAV = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/users', label: 'Users', icon: Users },
+  { to: '/posts', label: 'Posts', icon: Send },
   { to: '/plans', label: 'Plans', icon: Package },
   { to: '/workspaces', label: 'Workspaces', icon: Building2 },
   { to: '/jobs', label: 'Jobs & Queue', icon: ListChecks },
@@ -20,6 +22,7 @@ export default function AdminLayout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarHidden, setSidebarHidden] = useState(() => localStorage.getItem('postflow_admin_sidebar_hidden') === 'true')
   const userMenuRef = useRef(null)
 
   useEffect(() => {
@@ -42,10 +45,17 @@ export default function AdminLayout() {
     await logout()
     navigate('/login')
   }
+  const toggleSidebar = () => {
+    setSidebarHidden((hidden) => {
+      const next = !hidden
+      localStorage.setItem('postflow_admin_sidebar_hidden', String(next))
+      return next
+    })
+  }
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <aside className={clsx('fixed inset-y-0 left-0 z-40 w-64 transform border-r border-slate-800 bg-slate-900 transition-transform lg:translate-x-0', sidebarOpen ? 'translate-x-0' : '-translate-x-full')}>
+      <aside className={clsx('fixed inset-y-0 left-0 z-40 w-64 transform border-r border-slate-800 bg-slate-900 transition-transform', sidebarOpen && !sidebarHidden ? 'translate-x-0' : '-translate-x-full', sidebarHidden ? 'lg:-translate-x-full' : 'lg:translate-x-0')}>
         <div className="flex h-16 items-center gap-2 border-b border-slate-800 px-5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-600 text-white"><ShieldAlert className="h-5 w-5" /></div>
           <span className="text-lg font-bold text-white">Admin Console</span>
@@ -59,11 +69,30 @@ export default function AdminLayout() {
           ))}
         </nav>
       </aside>
-      {sidebarOpen && <button type="button" aria-label="Close navigation" className="fixed inset-0 z-30 bg-slate-950/70 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && !sidebarHidden && <button type="button" aria-label="Close navigation" className="fixed inset-0 z-30 bg-slate-950/70 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 backdrop-blur sm:px-6">
-          <div className="flex items-center gap-3"><button type="button" onClick={() => setSidebarOpen(true)} className="rounded-lg p-2 text-slate-300 hover:bg-slate-800 lg:hidden"><Menu className="h-5 w-5" /></button><span className="text-sm text-slate-400">Platform administration</span></div>
+      <div className={clsx('transition-[padding] duration-200', sidebarHidden ? 'lg:pl-0' : 'lg:pl-64')}>
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/80 px-4 backdrop-blur sm:px-6">
+          <div className="flex min-w-0 items-center gap-3 md:w-56">
+            <button
+              type="button"
+              onClick={() => {
+                if (window.matchMedia('(min-width: 1024px)').matches) toggleSidebar()
+                else {
+                  setSidebarHidden(false)
+                  setSidebarOpen(true)
+                }
+              }}
+              className="rounded-lg p-2 text-slate-300 hover:bg-slate-800"
+              aria-label="Toggle sidebar"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <span className="hidden truncate text-sm text-slate-400 md:block">Platform administration</span>
+          </div>
+
+          <PanelSearch className="hidden max-w-xl flex-1 md:block" />
+
           <div className="flex items-center gap-2">
             <NotificationMenu
               open={notificationOpen}
@@ -124,7 +153,7 @@ export default function AdminLayout() {
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-6 py-6"><Outlet /></main>
+        <main className="w-full px-4 py-6 sm:px-6 lg:px-8"><Outlet /></main>
       </div>
     </div>
   )

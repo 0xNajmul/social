@@ -7,6 +7,8 @@ use App\Models\SocialAccount;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\ActivityLogger;
+use App\Services\Social\Platforms\PinterestService;
+use App\Services\Social\Platforms\RedditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -85,7 +87,9 @@ class OAuthController extends Controller
                 'tiktok' => $this->connectTikTok($workspace, $user, $code->toString(), $credentials),
                 'google' => $this->connectYouTube($platform, $workspace, $user, $code->toString(), $credentials),
                 'linkedin' => $this->connectLinkedIn($platform, $workspace, $user, $code->toString(), $credentials),
+                'pinterest' => $this->connectPinterest($workspace, $user, $code->toString(), $credentials),
                 'mastodon' => $this->connectMastodon($workspace, $user, $code->toString(), $credentials),
+                'reddit' => $this->connectReddit($workspace, $user, $code->toString(), $credentials),
                 default => throw new \RuntimeException("OAuth callback not implemented for {$platform}."),
             };
         } catch (\Throwable $e) {
@@ -655,6 +659,57 @@ class OAuthController extends Controller
         ];
     }
 
+    /** @return array<int, SocialAccount> */
+    protected function connectPinterest(
+        Workspace $workspace,
+        User $user,
+        string $code,
+        array $credentials,
+    ): array {
+        $apiBase = rtrim((string) ($credentials['api_base'] ?? 'https://api.pinterest.com/v5'), '/');
+        $tokenResponse = Http::withBasicAuth($credentials['client_id'], $credentials['client_secret'])
+            ->asForm()
+            ->timeout(20)
+            ->post("{$apiBase}/oauth/token", [
+                'grant_type' => 'authorization_code',
+                'code' => $code,
+                'redirect_uri' => $credentials['redirect'],
+            ]);
+
+        if (! $tokenResponse->successful()) {
+            throw new \RuntimeException(
+                $tokenResponse->json('message')
+                ?? $tokenResponse->json('error_description')
+                ?? 'Pinterest token exchange failed.'
+            );
+        }
+
+        $tokens = $tokenResponse->json();
+        $accessToken = $tokens['access_token'] ?? null;
+        if (! $accessToken) {
+            throw new \RuntimeException('Pinterest did not return an access token.');
+        }
+
+        $scopes = preg_split('/[\s,]+/', trim((string) ($tokens['scope'] ?? ''))) ?: [];
+        $expiresAt = isset($tokens['expires_in']) ? now()->addSeconds((int) $tokens['expires_in']) : null;
+
+        return app(PinterestService::class)->connectBoards(
+            workspace: $workspace,
+            user: $user,
+            accessToken: $accessToken,
+            refreshToken: $tokens['refresh_token'] ?? null,
+            expiresAt: $expiresAt,
+            tokenMeta: array_filter([
+                'scopes' => array_values(array_filter($scopes)),
+                'token_type' => $tokens['token_type'] ?? 'bearer',
+                'refresh_token_expires_at' => isset($tokens['refresh_token_expires_at'])
+                    ? now()->setTimestamp((int) $tokens['refresh_token_expires_at'])->toIso8601String()
+                    : null,
+                'refresh_token_expires_in' => $tokens['refresh_token_expires_in'] ?? null,
+            ], fn ($value) => $value !== null),
+        );
+    }
+
     protected function connectMastodon(Workspace $workspace, User $user, string $code, array $credentials): SocialAccount
     {
         $instance = rtrim((string) ($credentials['instance'] ?? ''), '/');
@@ -730,6 +785,99 @@ class OAuthController extends Controller
                 'last_synced_at' => now(),
             ],
         );
+    }
+
+    protected function connectReddit(Workspace $workspace, User $user, string $code, array $credentials): SocialAccount
+    {
+        $userAgent = (string) ($credentials['user_agent'] ?? '');
+        $tokenResponse = Http::withBasicAuth($credentials['client_id'], $credentials['client_secret'])
+            ->withHeaders(['User-Agent' => $userAgent])
+            ->asForm()
+            ->timeout(20)
+            ->post('https://www.reddit.com/api/v1/access_token', [
+                'grant_type' => 'authorization_code',
+                'code' => $code,
+                'redirect_uri' => $credentials['redirect'],
+            ]);
+
+        if (! $tokenResponse->successful()) {
+            throw new \RuntimeException(
+                $tokenResponse->json('error_description')
+                ?? $tokenResponse->json('message')
+                ?? $tokenResponse->json('error')
+                ?? 'Reddit token exchange failed.'
+            );
+        }
+
+        $tokens = $tokenResponse->json();
+        $accessToken = $tokens['access_token'] ?? null;
+        $refreshToken = $tokens['refresh_token'] ?? null;
+        if (! $accessToken) {
+            throw new \RuntimeException('Reddit did not return an access token.');
+        }
+        if (! $refreshToken) {
+            throw new \RuntimeException('Reddit did not return a refresh token. Reconnect and approve permanent access.');
+        }
+
+        $apiBase = rtrim((string) ($credentials['api_base'] ?? 'https://oauth.reddit.com'), '/');
+        $profileResponse = Http::withToken($accessToken)
+            ->withHeaders(['User-Agent' => $userAgent])
+            ->timeout(20)
+            ->get("{$apiBase}/api/v1/me", ['raw_json' => 1]);
+
+        if (! $profileResponse->successful()) {
+            throw new \RuntimeException($profileResponse->json('message') ?? 'Could not load the Reddit profile.');
+        }
+
+        $profile = $profileResponse->json();
+        $accountId = (string) ($profile['id'] ?? '');
+        $username = (string) ($profile['name'] ?? '');
+        if ($accountId === '' || $username === '') {
+            throw new \RuntimeException('Reddit returned an incomplete account profile.');
+        }
+
+        $scope = preg_split('/[\s,]+/', trim((string) ($tokens['scope'] ?? ''))) ?: [];
+        $account = SocialAccount::upsertConnection(
+            [
+                'workspace_id' => $workspace->id,
+                'platform' => 'reddit',
+                'provider_account_id' => $accountId,
+            ],
+            [
+                'connected_by' => $user->id,
+                'name' => $username,
+                'username' => 'u/'.$username,
+                'avatar_url' => ($profile['snoovatar_img'] ?? null) ?: ($profile['icon_img'] ?? null),
+                'profile_url' => "https://www.reddit.com/user/{$username}/",
+                'access_token' => $accessToken,
+                'refresh_token' => $refreshToken,
+                'token_meta' => [
+                    'scope' => array_values(array_filter($scope)),
+                    'token_type' => $tokens['token_type'] ?? 'bearer',
+                    'reddit_fullname' => 't2_'.$accountId,
+                ],
+                'token_expires_at' => now()->addSeconds((int) ($tokens['expires_in'] ?? 3600)),
+                'status' => 'active',
+                'status_message' => null,
+                'settings' => [
+                    'link_karma' => (int) ($profile['link_karma'] ?? 0),
+                    'comment_karma' => (int) ($profile['comment_karma'] ?? 0),
+                    'has_verified_email' => (bool) ($profile['has_verified_email'] ?? false),
+                ],
+                'last_synced_at' => now(),
+            ],
+        );
+
+        try {
+            app(RedditService::class)->syncCommunities($account);
+        } catch (\Throwable $e) {
+            Log::warning('Reddit connected but community sync failed', [
+                'account_id' => $account->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $account->fresh();
     }
 
     protected function oauthGroup(string $platform): string

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Wand2, Hash, Sparkles, Send, CalendarClock, Save, AlertCircle, FolderOpen } from 'lucide-react'
 import api from '../lib/api'
 import { normalizeAccounts } from '../lib/accounts'
@@ -10,19 +10,22 @@ import MediaLibraryPicker from '../components/composer/MediaLibraryPicker'
 import YouTubePlatformFields, { isYouTubeAccount, defaultYouTubeOptions } from '../components/composer/YouTubePlatformFields'
 import TikTokPlatformFields from '../components/composer/TikTokPlatformFields'
 import { isTikTokAccount, defaultTikTokOptions } from '../components/composer/tikTokOptions'
+import RedditPlatformFields from '../components/composer/RedditPlatformFields'
+import { defaultRedditOptions, isRedditAccount } from '../components/composer/redditOptions'
 import PlatformPostPreview from '../components/composer/PlatformPostPreview'
 import { inferPostType, partitionAccounts } from '../lib/platformMedia'
 import { useAuth } from '../context/AuthContext'
 
-export default function Composer() {
+export function ComposerContent({ modal = false, onDone, initialScheduledAt = null }) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { activeWorkspace } = useAuth()
   const [accounts, setAccounts] = useState([])
   const [platforms, setPlatforms] = useState([])
   const [selected, setSelected] = useState([])
   const [content, setContent] = useState('')
   const [mediaItems, setMediaItems] = useState([])
-  const [scheduledAt, setScheduledAt] = useState('')
+  const [scheduledAt, setScheduledAt] = useState(() => toLocalDateTimeInput(initialScheduledAt || searchParams.get('scheduled_at')))
   const [aiBusy, setAiBusy] = useState(null)
   const [saving, setSaving] = useState(false)
   const [validation, setValidation] = useState({})
@@ -47,6 +50,9 @@ export default function Composer() {
         }
         if (isTikTokAccount(acc)) {
           setPlatformOptions((opts) => ({ ...opts, [id]: opts[id] || defaultTikTokOptions() }))
+        }
+        if (isRedditAccount(acc)) {
+          setPlatformOptions((opts) => ({ ...opts, [id]: opts[id] || defaultRedditOptions(acc) }))
         }
       }
       return next
@@ -124,6 +130,31 @@ export default function Composer() {
           return `Confirm TikTok publishing consent for "${acc.name}".`
         }
       }
+      if (isRedditAccount(acc)) {
+        const opts = platformOptions[acc.id] || {}
+        if (!opts.subreddit?.trim()) {
+          return `Choose a subreddit for "${acc.name}".`
+        }
+        if (!opts.reddit_title?.trim()) {
+          return `Reddit requires a post title for "${acc.name}".`
+        }
+        if (opts.reddit_title.trim().length > 300) {
+          return 'Reddit titles cannot exceed 300 characters.'
+        }
+        if (opts.reddit_post_type === 'link') {
+          try {
+            new URL(opts.reddit_url)
+          } catch {
+            return 'Enter a valid URL for the Reddit link post.'
+          }
+        }
+        if (opts.reddit_post_type === 'image') {
+          const images = mediaItems.filter((item) => item.type === 'image' || item.type === 'gif')
+          if (images.length !== 1 || mediaItems.length !== 1) {
+            return 'Reddit image posts require exactly one image.'
+          }
+        }
+      }
     }
     return null
   }
@@ -135,6 +166,11 @@ export default function Composer() {
     return data.data
   }
 
+  const finish = (post) => {
+    if (onDone) onDone(post)
+    else navigate('/app/organizer')
+  }
+
   const action = async (mode) => {
     if (selected.length === 0) return alert('Select at least one account.')
     if (eligible.length === 0) {
@@ -143,7 +179,10 @@ export default function Composer() {
     if (mediaUploading) return alert('Wait for uploads to finish.')
     const err = validateBeforeSubmit()
     if (err) return alert(err)
-    if (!content.trim() && mediaItems.length === 0) return alert('Add text or media.')
+    const hasRedditOnlyContent = eligible.length > 0
+      && eligible.every(isRedditAccount)
+      && eligible.every((account) => (platformOptions[account.id]?.reddit_title || '').trim())
+    if (!content.trim() && mediaItems.length === 0 && !hasRedditOnlyContent) return alert('Add text or media.')
 
     setSaving(true)
     try {
@@ -154,7 +193,7 @@ export default function Composer() {
       }
       if (approvalRequired && mode !== 'draft') {
         await api.post(`/posts/${post.id}/request-approval`)
-        navigate('/app/planner')
+        finish(post)
         return
       }
       if (mode === 'schedule') {
@@ -167,7 +206,7 @@ export default function Composer() {
       } else if (mode === 'publish') {
         await api.post(`/posts/${post.id}/publish`)
       }
-      navigate('/app/calendar')
+      finish(post)
     } catch (e) {
       const v = e.response?.data?.validation
       if (v) setValidation(v)
@@ -190,10 +229,10 @@ export default function Composer() {
 
   return (
     <div className="space-y-6">
-      <div>
+      {!modal && <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Compose</h1>
         <p className="text-sm text-slate-500">Upload once — we only publish to platforms that support your media.</p>
-      </div>
+      </div>}
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">
@@ -276,6 +315,16 @@ export default function Composer() {
             </Card>
           ))}
 
+          {selectedAccounts.filter(isRedditAccount).map((acc) => (
+            <Card key={acc.id} className="p-5">
+              <RedditPlatformFields
+                account={acc}
+                options={platformOptions[acc.id] || defaultRedditOptions(acc)}
+                onChange={(opts) => setPlatformOptions((prev) => ({ ...prev, [acc.id]: opts }))}
+              />
+            </Card>
+          ))}
+
           {/* Editor */}
           <Card className="p-5">
             <Textarea rows={7} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Write your caption or message…" />
@@ -352,4 +401,16 @@ export default function Composer() {
       />
     </div>
   )
+}
+
+export default function Composer() {
+  return <ComposerContent />
+}
+
+function toLocalDateTimeInput(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
 }

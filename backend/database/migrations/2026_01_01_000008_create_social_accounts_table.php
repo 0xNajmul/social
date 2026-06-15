@@ -16,13 +16,13 @@ return new class extends Migration
             $table->string('provider_account_id');       // id on the platform
             $table->string('name');                       // display name / handle
             $table->string('username')->nullable();
-            $table->string('avatar_url')->nullable();
-            $table->string('profile_url')->nullable();
+            $table->text('avatar_url')->nullable();
+            $table->text('profile_url')->nullable();
 
             // Encrypted token storage (cast to 'encrypted' on the model).
-            $table->text('access_token')->nullable();
-            $table->text('refresh_token')->nullable();
-            $table->json('token_meta')->nullable();       // scopes, page tokens, etc.
+            $table->longText('access_token')->nullable();
+            $table->longText('refresh_token')->nullable();
+            $table->longText('token_meta')->nullable();    // encrypted scopes, page tokens, etc.
             $table->timestamp('token_expires_at')->nullable();
 
             $table->string('status')->default('active');  // active | expired | revoked | error

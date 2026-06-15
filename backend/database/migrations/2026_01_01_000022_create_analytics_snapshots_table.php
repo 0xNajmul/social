@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('platform');
             $table->date('date');
             $table->unsignedBigInteger('followers')->default(0);
-            $table->unsignedBigInteger('followers_delta')->default(0);
+            $table->bigInteger('followers_delta')->default(0);
             $table->unsignedBigInteger('posts_published')->default(0);
             $table->unsignedBigInteger('likes')->default(0);
             $table->unsignedBigInteger('comments')->default(0);

@@ -10,6 +10,7 @@ use App\Models\Subscription;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -17,23 +18,63 @@ use Illuminate\Support\Facades\DB;
  */
 class AdminDashboardController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        [$from, $to, $range] = $this->dateRange($request);
+
         return response()->json([
             'stats' => [
-                'users' => User::count(),
-                'workspaces' => Workspace::count(),
-                'social_accounts' => SocialAccount::count(),
-                'posts' => Post::count(),
-                'published_posts' => Post::where('status', 'published')->count(),
+                'users' => $this->between(User::query(), $from, $to)->count(),
+                'workspaces' => $this->between(Workspace::query(), $from, $to)->count(),
+                'social_accounts' => $this->between(SocialAccount::query(), $from, $to)->count(),
+                'posts' => $this->between(Post::query(), $from, $to)->count(),
+                'published_posts' => $this->between(Post::where('status', 'published'), $from, $to, 'published_at')->count(),
                 'active_subscriptions' => Subscription::whereIn('status', ['active', 'trialing'])->count(),
                 'new_users_30d' => User::where('created_at', '>=', now()->subDays(30))->count(),
             ],
+            'range' => [
+                'key' => $range,
+                'from' => $from?->toDateString(),
+                'to' => $to?->toDateString(),
+            ],
             'revenue' => $this->revenue(),
-            'signups' => $this->signupTrend(),
+            'signups' => $this->signupTrend($from, $to),
             'plan_distribution' => $this->planDistribution(),
             'health' => $this->health(),
         ]);
+    }
+
+    protected function dateRange(Request $request): array
+    {
+        $range = $request->string('range', 'month')->toString();
+
+        if ($range === 'today') {
+            return [now()->startOfDay(), now()->endOfDay(), $range];
+        }
+
+        if ($range === 'week') {
+            return [now()->startOfWeek(), now()->endOfWeek(), $range];
+        }
+
+        if ($range === 'all') {
+            return [null, null, $range];
+        }
+
+        if ($range === 'custom') {
+            $from = $request->date('from')?->startOfDay();
+            $to = $request->date('to')?->endOfDay();
+
+            return [$from, $to, $range];
+        }
+
+        return [now()->startOfMonth(), now()->endOfMonth(), 'month'];
+    }
+
+    protected function between($query, $from, $to, string $column = 'created_at')
+    {
+        return $query
+            ->when($from, fn ($inner) => $inner->where($column, '>=', $from))
+            ->when($to, fn ($inner) => $inner->where($column, '<=', $to));
     }
 
     protected function revenue(): array
@@ -50,9 +91,12 @@ class AdminDashboardController extends Controller
         ];
     }
 
-    protected function signupTrend(): array
+    protected function signupTrend($from = null, $to = null): array
     {
-        return User::where('created_at', '>=', now()->subDays(30))
+        return User::query()
+            ->when(! $from && ! $to, fn ($query) => $query->where('created_at', '>=', now()->subDays(30)))
+            ->when($from, fn ($query) => $query->where('created_at', '>=', $from))
+            ->when($to, fn ($query) => $query->where('created_at', '<=', $to))
             ->groupBy('day')
             ->orderBy('day')
             ->get([DB::raw('DATE(created_at) as day'), DB::raw('COUNT(*) as count')])

@@ -87,6 +87,12 @@ class Workspace extends Model
         return $this->hasMany(Post::class);
     }
 
+    /** @return HasMany<PlannerNote, $this> */
+    public function plannerNotes(): HasMany
+    {
+        return $this->hasMany(PlannerNote::class);
+    }
+
     /** @return HasMany<MediaAsset, $this> */
     public function mediaAssets(): HasMany
     {

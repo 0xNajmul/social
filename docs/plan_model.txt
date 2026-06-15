@@ -1,0 +1,30 @@
+Starter
+1 Workspace
+5 Social Accounts
+1 User
+100 Scheduled Posts/month
+1 Telegram Bot
+
+
+Creator
+1 Workspace
+15 Social Accounts
+3 Users
+Unlimited Scheduling
+5 Telegram Bots
+Basic Analytics
+
+
+Agency
+5 Workspaces
+50 Social Accounts
+10 Users
+Unlimited Scheduling
+20 Telegram Bots
+White Label Reports
+
+
+Enterprise
+Unlimited
+Custom limits
+Dedicated support

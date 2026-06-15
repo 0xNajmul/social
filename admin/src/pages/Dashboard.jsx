@@ -1,18 +1,70 @@
 import { useEffect, useState } from 'react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-import { Users, Building2, Share2, FileText, DollarSign, Activity } from 'lucide-react'
+import { Users, Building2, Share2, FileText, DollarSign, Activity, CalendarDays } from 'lucide-react'
+import clsx from 'clsx'
 import api from '../lib/api'
 import { Card, StatCard, PageLoader, Badge } from '../components/ui'
 
+const RANGES = [
+  ['today', 'Today'],
+  ['month', 'Monthly'],
+  ['custom', 'Custom range'],
+]
+
 export default function Dashboard() {
   const [data, setData] = useState(null)
-  useEffect(() => { api.get('/admin/dashboard').then(({ data }) => setData(data)) }, [])
+  const [range, setRange] = useState('month')
+  const [custom, setCustom] = useState({ from: '', to: '' })
+
+  useEffect(() => {
+    setData(null)
+    api.get('/admin/dashboard', {
+      params: {
+        range,
+        from: range === 'custom' ? custom.from || undefined : undefined,
+        to: range === 'custom' ? custom.to || undefined : undefined,
+      },
+    }).then(({ data }) => setData(data))
+  }, [custom.from, custom.to, range])
+
   if (!data) return <PageLoader />
   const { stats, revenue, signups, plan_distribution, health } = data
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Platform overview</h1>
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Platform overview</h1>
+          <p className="mt-1 text-sm text-slate-400">Filter dashboard activity by a quick range or custom dates.</p>
+        </div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="flex rounded-2xl border border-slate-800 bg-slate-900 p-1">
+            {RANGES.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setRange(key)}
+                className={clsx(
+                  'whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition',
+                  range === key ? 'bg-brand-600 text-white shadow-lg shadow-brand-950/30' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {range === 'custom' && (
+            <div className="flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-900 p-2 shadow-xl sm:flex-row sm:items-center">
+              <span className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-200">
+                <CalendarDays className="h-4 w-4 text-brand-400" /> Custom
+              </span>
+              <input type="date" value={custom.from} onChange={(event) => setCustom({ ...custom, from: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand-500" />
+              <span className="hidden text-xs text-slate-500 sm:inline">to</span>
+              <input type="date" value={custom.to} onChange={(event) => setCustom({ ...custom, to: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand-500" />
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total users" value={stats.users} icon={Users} hint={`+${stats.new_users_30d} in 30d`} />

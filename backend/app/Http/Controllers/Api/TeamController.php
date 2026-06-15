@@ -58,6 +58,16 @@ class TeamController extends Controller
         $workspace = workspace();
         $this->authorize('manageTeam', $workspace);
         $this->usage->ensure($workspace, 'team_members');
+        $remaining = $this->usage->remaining($workspace, 'team_members');
+        $pendingInvitations = $workspace->invitations()
+            ->whereNull('accepted_at')
+            ->where('expires_at', '>', now())
+            ->count();
+        abort_if(
+            ! is_null($remaining) && $pendingInvitations >= $remaining,
+            403,
+            'Your plan limit for team members has been reached, including pending invitations.',
+        );
 
         $data = $request->validate([
             'email' => ['required', 'email'],
@@ -101,14 +111,14 @@ class TeamController extends Controller
         return response()->json(['message' => 'Role updated.']);
     }
 
-    public function removeMember(User $user): JsonResponse
+    public function removeMember(Request $request, User $user): JsonResponse
     {
         $workspace = workspace();
         $this->authorize('manageTeam', $workspace);
 
         abort_if($workspace->owner_id === $user->id, 422, 'The workspace owner cannot be removed.');
         abort_unless($workspace->members()->whereKey($user->id)->exists(), 404, 'Member not found in this workspace.');
-        $this->ensureCanManageTarget(request(), $workspace, $user);
+        $this->ensureCanManageTarget($request, $workspace, $user);
 
         $workspace->members()->detach($user->id);
         if ($user->current_workspace_id === $workspace->id) {

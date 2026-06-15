@@ -1,217 +1,224 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import {
-  CalendarClock, Check, CheckCircle2, CircleDashed, Clock3, Columns3, ListFilter,
-  Plus, Search, Table2, Timeline, UserRound, X,
-} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Bold, Check, Italic, LayoutGrid, List, Plus, Sparkles, Table2, Underline } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
-import PlatformBadge from '../components/PlatformBadge'
-import { Badge, Button, Card, EmptyState, PageLoader } from '../components/ui'
-import { useAuth } from '../context/AuthContext'
-
-const GROUPS = {
-  pending: {
-    label: 'Pending',
-    statuses: ['draft', 'pending_approval'],
-    color: 'amber',
-    icon: CircleDashed,
-    dot: 'bg-amber-500',
-    panel: 'border-amber-200 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20',
-  },
-  progress: {
-    label: 'Progress',
-    statuses: ['approved', 'scheduled', 'publishing'],
-    color: 'indigo',
-    icon: Clock3,
-    dot: 'bg-indigo-500',
-    panel: 'border-indigo-200 bg-indigo-50/60 dark:border-indigo-900/60 dark:bg-indigo-950/20',
-  },
-  completed: {
-    label: 'Completed',
-    statuses: ['published', 'failed', 'cancelled'],
-    color: 'emerald',
-    icon: CheckCircle2,
-    dot: 'bg-emerald-500',
-    panel: 'border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/60 dark:bg-emerald-950/20',
-  },
-}
-
-const FILTERS = [{ key: 'all', label: 'All' }, ...Object.entries(GROUPS).map(([key, value]) => ({ key, label: value.label }))]
-const VIEWS = [
-  { key: 'table', label: 'Table', icon: Table2 },
-  { key: 'board', label: 'Kanban', icon: Columns3 },
-  { key: 'timeline', label: 'Timeline', icon: Timeline },
-]
+import { Badge, Button, Card, Input, Modal, PageLoader, Textarea } from '../components/ui'
 
 export default function Planner() {
-  const { activeWorkspace } = useAuth()
-  const [posts, setPosts] = useState(null)
-  const [filter, setFilter] = useState('all')
-  const [view, setView] = useState(() => localStorage.getItem('planner_view') || 'table')
-  const [search, setSearch] = useState('')
-  const [error, setError] = useState('')
-  const [reviewBusy, setReviewBusy] = useState('')
+  const [notes, setNotes] = useState(null)
+  const [view, setView] = useState(() => localStorage.getItem('planner_notes_view') || 'card')
+  const [planOpen, setPlanOpen] = useState(false)
+  const [planForm, setPlanForm] = useState({ title: '', content_html: '', ai_prompt: '' })
+  const [planErrors, setPlanErrors] = useState({})
+  const [planBusy, setPlanBusy] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
+
+  const loadNotes = () => {
+    api.get('/planner-notes', { params: { limit: 24 } })
+      .then(({ data }) => setNotes(data.data || []))
+      .catch(() => setNotes([]))
+  }
 
   useEffect(() => {
-    api.get('/posts', { params: { per_page: 100 } })
-      .then(({ data }) => setPosts(data.data || []))
-      .catch(() => {
-        setPosts([])
-        setError('Could not load your posting plan.')
-      })
+    loadNotes()
   }, [])
 
-  const counts = useMemo(() => {
-    const items = posts || []
-    return {
-      all: items.length,
-      ...Object.fromEntries(Object.keys(GROUPS).map((key) => [key, items.filter((post) => groupFor(post) === key).length])),
-    }
-  }, [posts])
-
-  const filteredPosts = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    return (posts || [])
-      .filter((post) => filter === 'all' || groupFor(post) === filter)
-      .filter((post) => !query || `${post.title || ''} ${post.content || ''} ${post.author?.name || ''}`.toLowerCase().includes(query))
-      .sort(comparePosts)
-  }, [filter, posts, search])
+  const openCreatePlan = () => {
+    setPlanForm({ title: '', content_html: '', ai_prompt: '' })
+    setPlanErrors({})
+    setPlanOpen(true)
+  }
 
   const changeView = (nextView) => {
     setView(nextView)
-    localStorage.setItem('planner_view', nextView)
+    localStorage.setItem('planner_notes_view', nextView)
   }
 
-  const reviewPost = async (post, decision) => {
-    setReviewBusy(`${decision}-${post.id}`)
-    setError('')
+  const generatePlanContent = async () => {
+    setAiBusy(true)
+    setPlanErrors({})
     try {
-      await api.post(`/posts/${post.id}/review`, { decision })
-      const { data } = await api.get('/posts', { params: { per_page: 100 } })
-      setPosts(data.data || [])
-    } catch (reviewError) {
-      setError(reviewError.response?.data?.message || 'Could not review this post.')
+      const topic = planForm.ai_prompt || planForm.title || plainText(planForm.content_html) || 'Create a practical social content plan'
+      const { data } = await api.post('/ai/generate', {
+        type: 'caption',
+        topic,
+        content: plainText(planForm.content_html),
+        tone: 'professional',
+      })
+      const generated = textToHtml(data.result || '')
+      setPlanForm((current) => ({
+        ...current,
+        content_html: current.content_html ? `${current.content_html}<p><br></p>${generated}` : generated,
+      }))
+    } catch (aiError) {
+      setPlanErrors({ ai: aiError.response?.data?.message || 'Could not generate AI content right now.' })
     } finally {
-      setReviewBusy('')
+      setAiBusy(false)
     }
   }
 
-  const canApprove = ['owner', 'admin', 'manager'].includes(activeWorkspace?.role)
+  const savePlan = async (event) => {
+    event.preventDefault()
+    setPlanBusy(true)
+    setPlanErrors({})
+    try {
+      const { data } = await api.post('/planner-notes', {
+        title: planForm.title,
+        content_html: planForm.content_html,
+        ai_prompt: planForm.ai_prompt,
+      })
+      setNotes((current) => [data.data, ...(current || [])])
+      setPlanOpen(false)
+    } catch (saveError) {
+      setPlanErrors(saveError.response?.data?.errors || { general: saveError.response?.data?.message || 'Could not save this plan.' })
+    } finally {
+      setPlanBusy(false)
+    }
+  }
 
-  if (!posts) return <PageLoader />
+  if (!notes) return <PageLoader />
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Planner</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Track every post from first draft to completed publishing.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Track ideas, briefs, AI drafts, and reusable content plans.</p>
         </div>
-        <Link to="/app/composer"><Button><Plus className="h-4 w-4" /> Create post</Button></Link>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {FILTERS.map((item) => {
-          const meta = item.key === 'all' ? { icon: ListFilter, color: 'brand' } : GROUPS[item.key]
-          const Icon = meta.icon
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setFilter(item.key)}
-              className={clsx(
-                'flex items-center justify-between rounded-2xl border bg-white p-4 text-left shadow-sm transition dark:bg-slate-900',
-                filter === item.key
-                  ? 'border-brand-500 ring-2 ring-brand-500/20 dark:border-brand-400'
-                  : 'border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700',
-              )}
-            >
-              <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{item.label}</p>
-                <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{counts[item.key]}</p>
-              </div>
-              <span className={clsx('flex h-10 w-10 items-center justify-center rounded-xl', iconTone(meta.color))}>
-                <Icon className="h-5 w-5" />
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      <Card className="overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-800 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full lg:max-w-sm">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search posts or authors..."
-              className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-            />
-          </div>
-          <div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
-            {VIEWS.map((item) => (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+            {[
+              { key: 'table', label: 'Table', icon: Table2 },
+              { key: 'card', label: 'Card', icon: LayoutGrid },
+            ].map(({ key, label, icon: Icon }) => (
               <button
-                key={item.key}
+                key={key}
                 type="button"
-                onClick={() => changeView(item.key)}
+                onClick={() => changeView(key)}
                 className={clsx(
-                  'flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition lg:flex-none',
-                  view === item.key ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white',
+                  'inline-flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition',
+                  view === key
+                    ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-700 dark:text-brand-300'
+                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white',
                 )}
               >
-                <item.icon className="h-4 w-4" />
-                <span className="hidden sm:inline">{item.label}</span>
+                <Icon className="h-4 w-4" />
+                {label} view
               </button>
             ))}
           </div>
+          <Button onClick={openCreatePlan}><Plus className="h-4 w-4" /> Create plan</Button>
         </div>
+      </div>
 
-        {error && <div className="border-b border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400">{error}</div>}
-
-        {filteredPosts.length === 0 ? (
-          <div className="p-6">
-            <EmptyState
-              icon={CalendarClock}
-              title="No posts found"
-              description={search ? 'Try a different search or status filter.' : 'Create your first post to start filling the planner.'}
-              action={!search && <Link to="/app/composer"><Button size="sm"><Plus className="h-4 w-4" /> Create post</Button></Link>}
-            />
-          </div>
+      <Card className="overflow-hidden">
+        {notes.length ? (
+          view === 'table' ? <PlannerNotesTable notes={notes} /> : <PlannerNotesCards notes={notes} />
         ) : (
-          <>
-            {view === 'table' && <TableView posts={filteredPosts} canApprove={canApprove} onReview={reviewPost} reviewBusy={reviewBusy} />}
-            {view === 'board' && <BoardView posts={filteredPosts} filter={filter} canApprove={canApprove} onReview={reviewPost} reviewBusy={reviewBusy} />}
-            {view === 'timeline' && <TimelineView posts={filteredPosts} canApprove={canApprove} onReview={reviewPost} reviewBusy={reviewBusy} />}
-          </>
+          <div className="p-4">
+            <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-8 text-center dark:border-slate-700">
+              <p className="font-semibold text-slate-800 dark:text-slate-100">No saved plans yet</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Create a plan to store notes, campaign briefs, or AI-generated content.</p>
+            </div>
+          </div>
         )}
       </Card>
+
+      <Modal
+        open={planOpen}
+        title="Create plan"
+        description="Write a planning note, campaign brief, or AI-assisted draft and save it to this workspace."
+        onClose={() => setPlanOpen(false)}
+        size="xl"
+      >
+        <form onSubmit={savePlan} className="space-y-5 p-5">
+          {planErrors.general && <Notice type="error">{planErrors.general}</Notice>}
+          {planErrors.ai && <Notice type="error">{planErrors.ai}</Notice>}
+
+          <Input
+            label="Plan title"
+            value={planForm.title}
+            onChange={(event) => setPlanForm({ ...planForm, title: event.target.value })}
+            error={planErrors.title?.[0]}
+            placeholder="Launch week content plan"
+            required
+          />
+
+          <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
+            <RichTextEditor
+              value={planForm.content_html}
+              onChange={(content_html) => setPlanForm({ ...planForm, content_html })}
+              error={planErrors.content_html?.[0]}
+            />
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+              <div>
+                <p className="font-semibold text-slate-900 dark:text-white">AI assistant</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Describe what you want and AI will add a professional draft into the editor.</p>
+              </div>
+              <Textarea
+                label="Prompt"
+                rows={5}
+                value={planForm.ai_prompt}
+                onChange={(event) => setPlanForm({ ...planForm, ai_prompt: event.target.value })}
+                placeholder="Generate a 7-day content plan for our new feature launch..."
+              />
+              <Button type="button" variant="secondary" className="w-full" onClick={generatePlanContent} loading={aiBusy}>
+                <Sparkles className="h-4 w-4" /> Generate content
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
+            <Button type="button" variant="ghost" onClick={() => setPlanOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={planBusy}><Check className="h-4 w-4" /> Save plan</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
 
-function TableView({ posts, canApprove, onReview, reviewBusy }) {
+function PlannerNotesCards({ notes }) {
+  return (
+    <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
+      {notes.map((note) => (
+        <article key={note.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="line-clamp-2 text-sm font-semibold text-slate-900 dark:text-white">{note.title}</h3>
+            <Badge color="indigo">Note</Badge>
+          </div>
+          <p className="mt-3 line-clamp-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{note.excerpt || 'No preview text.'}</p>
+          <p className="mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-400">{new Date(note.created_at).toLocaleDateString()}</p>
+        </article>
+      ))}
+    </div>
+  )
+}
+
+function PlannerNotesTable({ notes }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[850px] text-left text-sm">
+      <table className="w-full min-w-[760px] text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
           <tr>
-            <th className="px-5 py-3 font-semibold">Post</th>
-            <th className="px-5 py-3 font-semibold">Stage</th>
-            <th className="px-5 py-3 font-semibold">Platforms</th>
+            <th className="px-5 py-3 font-semibold">Plan</th>
+            <th className="px-5 py-3 font-semibold">Preview</th>
             <th className="px-5 py-3 font-semibold">Owner</th>
-            <th className="px-5 py-3 font-semibold">Schedule</th>
+            <th className="px-5 py-3 font-semibold">Created</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-          {posts.map((post) => (
-            <tr key={post.id} className="transition hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-              <td className="max-w-md px-5 py-4"><PostTitle post={post} /></td>
-              <td className="px-5 py-4"><StageBadges post={post} /><ReviewActions post={post} canApprove={canApprove} onReview={onReview} reviewBusy={reviewBusy} /></td>
-              <td className="px-5 py-4"><Platforms post={post} /></td>
-              <td className="px-5 py-4"><Owner post={post} /></td>
-              <td className="whitespace-nowrap px-5 py-4 text-slate-500 dark:text-slate-400">{planDate(post)}</td>
+          {notes.map((note) => (
+            <tr key={note.id} className="transition hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+              <td className="px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <Badge color="indigo">Note</Badge>
+                  <span className="font-semibold text-slate-900 dark:text-white">{note.title}</span>
+                </div>
+              </td>
+              <td className="max-w-md px-5 py-4 text-xs leading-5 text-slate-500 dark:text-slate-400">{note.excerpt || 'No preview text.'}</td>
+              <td className="px-5 py-4 text-slate-500 dark:text-slate-400">{note.author?.name || 'Unknown'}</td>
+              <td className="whitespace-nowrap px-5 py-4 text-slate-500 dark:text-slate-400">{new Date(note.created_at).toLocaleDateString()}</td>
             </tr>
           ))}
         </tbody>
@@ -220,146 +227,93 @@ function TableView({ posts, canApprove, onReview, reviewBusy }) {
   )
 }
 
-function BoardView({ posts, filter, canApprove, onReview, reviewBusy }) {
-  const columns = filter === 'all' ? Object.keys(GROUPS) : [filter]
-  return (
-    <div className={clsx('grid gap-4 overflow-x-auto p-4', columns.length === 3 ? 'lg:grid-cols-3' : 'grid-cols-1')}>
-      {columns.map((key) => {
-        const meta = GROUPS[key]
-        const columnPosts = posts.filter((post) => groupFor(post) === key)
-        return (
-          <section key={key} className={clsx('min-w-0 rounded-2xl border p-3', meta.panel)}>
-            <div className="mb-3 flex items-center justify-between px-1">
-              <div className="flex items-center gap-2">
-                <span className={clsx('h-2.5 w-2.5 rounded-full', meta.dot)} />
-                <h2 className="font-semibold text-slate-800 dark:text-slate-100">{meta.label}</h2>
-              </div>
-              <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">{columnPosts.length}</span>
-            </div>
-            <div className="space-y-3">
-              {columnPosts.map((post) => <PlannerCard key={post.id} post={post} canApprove={canApprove} onReview={onReview} reviewBusy={reviewBusy} />)}
-              {columnPosts.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-400 dark:border-slate-700">No posts in this stage</div>}
-            </div>
-          </section>
-        )
-      })}
-    </div>
-  )
-}
+function RichTextEditor({ value, onChange, error }) {
+  const editorRef = useRef(null)
 
-function TimelineView({ posts, canApprove, onReview, reviewBusy }) {
-  return (
-    <div className="p-5 sm:p-6">
-      <div className="relative ml-3 border-l-2 border-slate-200 pl-7 dark:border-slate-700">
-        {posts.map((post) => {
-          const meta = GROUPS[groupFor(post)]
-          return (
-            <div key={post.id} className="relative pb-7 last:pb-0">
-              <span className={clsx('absolute -left-[36px] top-1.5 h-4 w-4 rounded-full border-4 border-white dark:border-slate-900', meta.dot)} />
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{planDate(post)}</p>
-              <PlannerCard post={post} compact canApprove={canApprove} onReview={onReview} reviewBusy={reviewBusy} />
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || ''
+    }
+  }, [value])
 
-function PlannerCard({ post, compact = false, canApprove, onReview, reviewBusy }) {
-  return (
-    <div className={clsx('rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900', compact ? 'p-4' : 'p-3.5')}>
-      <div className="flex items-start justify-between gap-3">
-        <PostTitle post={post} />
-        <StageBadges post={post} showGroup={false} />
-      </div>
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <Platforms post={post} />
-        <span className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-400"><CalendarClock className="h-3.5 w-3.5" /> {planDate(post, true)}</span>
-      </div>
-      <ReviewActions post={post} canApprove={canApprove} onReview={onReview} reviewBusy={reviewBusy} />
-    </div>
-  )
-}
-
-function ReviewActions({ post, canApprove, onReview, reviewBusy }) {
-  if (!canApprove || post.status !== 'pending_approval') return null
-  return (
-    <div className="mt-3 flex gap-2">
-      <Button size="sm" loading={reviewBusy === `approved-${post.id}`} disabled={Boolean(reviewBusy)} onClick={() => onReview(post, 'approved')}><Check className="h-3.5 w-3.5" /> Approve</Button>
-      <Button size="sm" variant="secondary" loading={reviewBusy === `rejected-${post.id}`} disabled={Boolean(reviewBusy)} onClick={() => onReview(post, 'rejected')}><X className="h-3.5 w-3.5" /> Reject</Button>
-    </div>
-  )
-}
-
-function PostTitle({ post }) {
-  return (
-    <div className="min-w-0">
-      <p className="truncate font-semibold text-slate-900 dark:text-white">{post.title || contentTitle(post.content)}</p>
-      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{post.content || 'No post content yet.'}</p>
-    </div>
-  )
-}
-
-function StageBadges({ post, showGroup = true }) {
-  const group = GROUPS[groupFor(post)]
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {showGroup && <Badge color={group.color}>{group.label}</Badge>}
-      <Badge color={post.status_color}>{post.status_label || post.status}</Badge>
-    </div>
-  )
-}
-
-function Platforms({ post }) {
-  const variants = post.variants || []
-  if (!variants.length) return <span className="text-xs text-slate-400">No channels</span>
-  return (
-    <div className="flex items-center -space-x-1.5">
-      {variants.slice(0, 4).map((variant) => <PlatformBadge key={variant.id} platform={variant.platform} size="xs" className="ring-2 ring-white dark:ring-slate-900" />)}
-      {variants.length > 4 && <span className="ml-2 text-xs font-medium text-slate-500">+{variants.length - 4}</span>}
-    </div>
-  )
-}
-
-function Owner({ post }) {
-  return (
-    <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-      {post.author?.avatar_url ? <img src={post.author.avatar_url} alt="" className="h-7 w-7 rounded-full object-cover" /> : <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800"><UserRound className="h-3.5 w-3.5" /></span>}
-      <span className="max-w-32 truncate text-xs font-medium">{post.author?.name || 'Unknown'}</span>
-    </div>
-  )
-}
-
-function groupFor(post) {
-  return Object.keys(GROUPS).find((key) => GROUPS[key].statuses.includes(post.status)) || 'pending'
-}
-
-function comparePosts(a, b) {
-  const aDate = new Date(a.scheduled_at || a.published_at || a.updated_at || a.created_at).getTime()
-  const bDate = new Date(b.scheduled_at || b.published_at || b.updated_at || b.created_at).getTime()
-  return aDate - bDate
-}
-
-function planDate(post, short = false) {
-  const value = post.scheduled_at || post.published_at || post.updated_at || post.created_at
-  if (!value) return 'No date'
-  return new Date(value).toLocaleString('default', short
-    ? { month: 'short', day: 'numeric' }
-    : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-}
-
-function contentTitle(content = '') {
-  const clean = content.trim()
-  return clean ? `${clean.slice(0, 54)}${clean.length > 54 ? '...' : ''}` : 'Untitled post'
-}
-
-function iconTone(color) {
-  const tones = {
-    brand: 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300',
-    amber: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300',
-    indigo: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300',
-    emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300',
+  const run = (command) => {
+    editorRef.current?.focus()
+    document.execCommand(command, false, null)
+    onChange(editorRef.current?.innerHTML || '')
   }
-  return tones[color] || tones.brand
+
+  return (
+    <div>
+      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Rich text content</span>
+      <div className="overflow-hidden rounded-2xl border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex flex-wrap gap-1 border-b border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-800/60">
+          <EditorButton label="Bold" onClick={() => run('bold')}><Bold className="h-4 w-4" /></EditorButton>
+          <EditorButton label="Italic" onClick={() => run('italic')}><Italic className="h-4 w-4" /></EditorButton>
+          <EditorButton label="Underline" onClick={() => run('underline')}><Underline className="h-4 w-4" /></EditorButton>
+          <EditorButton label="Bulleted list" onClick={() => run('insertUnorderedList')}><List className="h-4 w-4" /></EditorButton>
+        </div>
+        <div
+          ref={editorRef}
+          contentEditable
+          onInput={(event) => onChange(event.currentTarget.innerHTML)}
+          className="min-h-72 px-4 py-3 text-sm leading-7 text-slate-900 outline-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] dark:text-slate-100"
+          data-placeholder="Write your content plan, campaign notes, hooks, captions, or brief..."
+          suppressContentEditableWarning
+        />
+      </div>
+      {error && <span className="mt-1 block text-xs text-rose-500">{error}</span>}
+    </div>
+  )
+}
+
+function EditorButton({ label, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onClick}
+      className="rounded-lg p-2 text-slate-500 transition hover:bg-white hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </button>
+  )
+}
+
+function Notice({ type = 'success', children }) {
+  return (
+    <div className={clsx(
+      'rounded-xl border px-4 py-3 text-sm',
+      type === 'success'
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300'
+        : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300',
+    )}>
+      {children}
+    </div>
+  )
+}
+
+function plainText(html = '') {
+  if (!html) return ''
+  const doc = new DOMParser().parseFromString(String(html), 'text/html')
+  return doc.body.textContent?.trim() || ''
+}
+
+function textToHtml(text = '') {
+  return String(text)
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
+    .join('')
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }

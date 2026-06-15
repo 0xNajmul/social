@@ -1,16 +1,36 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarClock, CheckCircle2, FileEdit, AlertTriangle, Share2, Clock3, PenSquare } from 'lucide-react'
+import { CalendarClock, CheckCircle2, FileEdit, AlertTriangle, Share2, Clock3, CalendarDays } from 'lucide-react'
+import clsx from 'clsx'
 import api from '../lib/api'
 import { Card, StatCard, PageLoader, EmptyState, Badge, Button } from '../components/ui'
 import PlatformBadge from '../components/PlatformBadge'
 
+const RANGES = [
+  ['today', 'Today'],
+  ['month', 'Monthly'],
+  ['custom', 'Custom range'],
+]
+
 export default function Dashboard() {
   const [data, setData] = useState(null)
+  const [range, setRange] = useState('month')
+  const [custom, setCustom] = useState({ from: '', to: '' })
 
   useEffect(() => {
-    api.get('/dashboard').then(({ data }) => setData(data)).catch(() => setData({ error: true }))
-  }, [])
+    setData(null)
+    api.get('/dashboard', {
+      params: {
+        range,
+        from: range === 'custom' ? custom.from || undefined : undefined,
+        to: range === 'custom' ? custom.to || undefined : undefined,
+      },
+    }).then(({ data }) => setData(data)).catch(() => setData({ error: true }))
+  }, [custom.from, custom.to, range])
+
+  const openComposerModal = () => {
+    window.dispatchEvent(new CustomEvent('postflow:quick-action', { detail: { type: 'composer' } }))
+  }
 
   if (!data) return <PageLoader />
 
@@ -18,12 +38,38 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-slate-500">Here's what's happening across your channels.</p>
         </div>
-        <Link to="/app/composer"><Button><PenSquare className="h-4 w-4" /> New post</Button></Link>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            {RANGES.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setRange(key)}
+                className={clsx(
+                  'whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition',
+                  range === key ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {range === 'custom' && (
+            <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center">
+              <span className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <CalendarDays className="h-4 w-4 text-brand-500" /> Custom
+              </span>
+              <input type="date" value={custom.from} onChange={(event) => setCustom({ ...custom, from: event.target.value })} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+              <span className="hidden text-xs text-slate-400 sm:inline">to</span>
+              <input type="date" value={custom.to} onChange={(event) => setCustom({ ...custom, to: event.target.value })} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -40,11 +86,11 @@ export default function Dashboard() {
         <Card className="lg:col-span-2">
           <div className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-800">
             <h2 className="font-semibold text-slate-900 dark:text-white">Upcoming posts</h2>
-            <Link to="/app/calendar" className="text-sm font-medium text-brand-600">View calendar</Link>
+            <Link to="/app/organizer" className="text-sm font-medium text-brand-600">View organizer</Link>
           </div>
           <div className="p-3">
             {upcoming.length === 0 ? (
-              <EmptyState icon={CalendarClock} title="Nothing scheduled" description="Create and schedule your first post." action={<Link to="/app/composer"><Button size="sm">Compose</Button></Link>} />
+              <EmptyState icon={CalendarClock} title="Nothing scheduled" description="Create and schedule your first post." action={<Button type="button" size="sm" onClick={openComposerModal}>Compose</Button>} />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {upcoming.map((post) => (

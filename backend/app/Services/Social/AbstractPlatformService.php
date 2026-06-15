@@ -75,7 +75,7 @@ abstract class AbstractPlatformService implements SocialPublisher
             return PublishResult::failure(implode(' ', $errors), retryable: false);
         }
 
-        if ($account->isExpired() || $account->isExpiringSoon()) {
+        if ($this->shouldRefreshToken($account)) {
             $profile = $this->refreshToken($account);
 
             if ($profile?->accessToken) {
@@ -170,6 +170,11 @@ abstract class AbstractPlatformService implements SocialPublisher
     public function refreshToken(SocialAccount $account): ?AccountProfile
     {
         return null;
+    }
+
+    protected function shouldRefreshToken(SocialAccount $account): bool
+    {
+        return $account->isExpired() || $account->isExpiringSoon();
     }
 
     /**

@@ -19,7 +19,7 @@ class PlatformSetting extends Model
         return match ($value) {
             'true' => true,
             'false' => false,
-            default => $value,
+            default => static::decodeValue($value),
         };
     }
 
@@ -29,8 +29,34 @@ class PlatformSetting extends Model
         foreach ($values as $key => $value) {
             static::query()->updateOrCreate(
                 ['key' => $key],
-                ['value' => is_bool($value) ? ($value ? 'true' : 'false') : (string) ($value ?? '')],
+                ['value' => static::encodeValue($value)],
             );
         }
+    }
+
+    protected static function encodeValue(mixed $value): string
+    {
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+
+        if (is_array($value)) {
+            return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '[]';
+        }
+
+        return (string) ($value ?? '');
+    }
+
+    protected static function decodeValue(string $value): mixed
+    {
+        $trimmed = trim($value);
+
+        if ($trimmed === '' || ! in_array($trimmed[0], ['{', '['], true)) {
+            return $value;
+        }
+
+        $decoded = json_decode($value, true);
+
+        return json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
     }
 }

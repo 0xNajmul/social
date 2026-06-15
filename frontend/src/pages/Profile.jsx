@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Camera, UserRound } from 'lucide-react'
+import { Camera, KeyRound, UserRound } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Button, Card, Input } from '../components/ui'
@@ -17,6 +17,10 @@ export default function Profile() {
   const [errors, setErrors] = useState({})
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({ current_password: '', password: '', password_confirmation: '' })
+  const [passwordErrors, setPasswordErrors] = useState({})
+  const [passwordMessage, setPasswordMessage] = useState('')
+  const [passwordSaving, setPasswordSaving] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -51,6 +55,30 @@ export default function Profile() {
       setMessage(error.response?.data?.message || 'Could not update your profile.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const updatePasswordField = (field) => (event) => {
+    setPasswordForm((current) => ({ ...current, [field]: event.target.value }))
+    setPasswordErrors((current) => ({ ...current, [field]: undefined }))
+    setPasswordMessage('')
+  }
+
+  const savePassword = async (event) => {
+    event.preventDefault()
+    setPasswordSaving(true)
+    setPasswordErrors({})
+    setPasswordMessage('')
+
+    try {
+      await api.put('/profile/password', passwordForm)
+      setPasswordForm({ current_password: '', password: '', password_confirmation: '' })
+      setPasswordMessage('Your password has been updated.')
+    } catch (error) {
+      setPasswordErrors(error.response?.data?.errors || {})
+      setPasswordMessage(error.response?.data?.message || 'Could not update your password.')
+    } finally {
+      setPasswordSaving(false)
     }
   }
 
@@ -115,6 +143,33 @@ export default function Profile() {
               {message}
             </p>
             <Button type="submit" loading={saving}>Save changes</Button>
+          </div>
+        </Card>
+      </form>
+
+      <form onSubmit={savePassword}>
+        <Card className="space-y-5 p-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
+              <KeyRound className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-semibold text-slate-900 dark:text-white">Change password</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use a strong password you do not use anywhere else.</p>
+            </div>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Input label="Current password" type="password" value={passwordForm.current_password} onChange={updatePasswordField('current_password')} error={passwordErrors.current_password?.[0]} required className="sm:col-span-2" />
+            <Input label="New password" type="password" value={passwordForm.password} onChange={updatePasswordField('password')} error={passwordErrors.password?.[0]} required />
+            <Input label="Confirm new password" type="password" value={passwordForm.password_confirmation} onChange={updatePasswordField('password_confirmation')} error={passwordErrors.password_confirmation?.[0]} required />
+          </div>
+
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+            <p className={passwordMessage.startsWith('Your') ? 'text-sm text-emerald-600 dark:text-emerald-400' : 'text-sm text-rose-600 dark:text-rose-400'}>
+              {passwordMessage}
+            </p>
+            <Button type="submit" loading={passwordSaving}>Update password</Button>
           </div>
         </Card>
       </form>

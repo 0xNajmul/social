@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Upload, Trash2, FileVideo, Image as ImageIcon, FileText, Search, X, Play } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Upload, Trash2, FileVideo, Image as ImageIcon, FileText, Search, X, Play, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../lib/api'
 import { mediaUrl } from '../lib/media'
 import { Card, Button, PageLoader, EmptyState, Input } from '../components/ui'
@@ -12,27 +12,29 @@ export default function Media() {
   const [assets, setAssets] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [search, setSearch] = useState('')
-  const [preview, setPreview] = useState(null)
+  const [previewIndex, setPreviewIndex] = useState(null)
   const fileRef = useRef()
 
-  const load = (query = search) =>
+  const load = useCallback((query = search) =>
     api
       .get('/media', { params: { per_page: 100, search: query.trim() || undefined } })
-      .then(({ data }) => setAssets(data.data))
+      .then(({ data }) => setAssets(data.data)), [search])
 
   useEffect(() => {
     const timer = setTimeout(() => load(search), search ? 300 : 0)
     return () => clearTimeout(timer)
-  }, [search])
+  }, [load, search])
 
   const upload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = [...(e.target.files || [])]
+    if (!files.length) return
     setUploading(true)
-    const form = new FormData()
-    form.append('file', file)
     try {
-      await api.post('/media', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      for (const file of files) {
+        const form = new FormData()
+        form.append('file', file)
+        await api.post('/media', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      }
       await load()
     } catch (err) {
       alert(err.response?.data?.message || 'Upload failed')
@@ -45,11 +47,12 @@ export default function Media() {
   const remove = async (id) => {
     if (!confirm('Delete this file?')) return
     await api.delete(`/media/${id}`)
-    if (preview?.id === id) setPreview(null)
+    if (assets?.[previewIndex]?.id === id) setPreviewIndex(null)
     load()
   }
 
   if (!assets) return <PageLoader />
+  const preview = previewIndex !== null ? assets[previewIndex] : null
 
   return (
     <div className="space-y-6">
@@ -69,9 +72,9 @@ export default function Media() {
             />
           </div>
           <Button onClick={() => fileRef.current?.click()} loading={uploading}>
-            <Upload className="h-4 w-4" /> Upload
+            <Upload className="h-4 w-4" /> Upload files
           </Button>
-          <input ref={fileRef} type="file" hidden onChange={upload} accept="image/*,video/*,application/pdf" />
+          <input ref={fileRef} type="file" hidden multiple onChange={upload} accept="image/*,video/*,application/pdf" />
         </div>
       </div>
 
@@ -84,11 +87,11 @@ export default function Media() {
         />
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {assets.map((m) => (
+          {assets.map((m, index) => (
             <Card key={m.id} className="group relative overflow-hidden p-0">
               <button
                 type="button"
-                onClick={() => setPreview(m)}
+                onClick={() => setPreviewIndex(index)}
                 className="block w-full text-left"
                 aria-label={`Preview ${m.original_name}`}
               >
@@ -129,14 +132,32 @@ export default function Media() {
       )}
 
       {preview && (
-        <MediaPreviewModal asset={preview} onClose={() => setPreview(null)} />
+        <MediaPreviewModal
+          asset={preview}
+          hasNavigation={assets.length > 1}
+          onClose={() => setPreviewIndex(null)}
+          onNext={() => setPreviewIndex((index) => (index + 1) % assets.length)}
+          onPrevious={() => setPreviewIndex((index) => (index - 1 + assets.length) % assets.length)}
+        />
       )}
     </div>
   )
 }
 
-function MediaPreviewModal({ asset, onClose }) {
+function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation }) {
   const src = mediaUrl(asset.url)
+
+  useEffect(() => {
+    const handleKey = (event) => {
+      if (event.key === 'Escape') onClose()
+      if (!hasNavigation) return
+      if (event.key === 'ArrowRight') onNext()
+      if (event.key === 'ArrowLeft') onPrevious()
+    }
+
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [hasNavigation, onClose, onNext, onPrevious])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
@@ -154,7 +175,27 @@ function MediaPreviewModal({ asset, onClose }) {
           </button>
         </div>
 
-        <div className="flex max-h-[70vh] min-h-[200px] items-center justify-center overflow-auto bg-slate-950 p-4">
+        <div className="relative flex max-h-[70vh] min-h-[240px] items-center justify-center overflow-auto bg-slate-950 p-4">
+          {hasNavigation && (
+            <>
+              <button
+                type="button"
+                onClick={onPrevious}
+                className="absolute left-4 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-lg transition hover:bg-white dark:bg-slate-800/90 dark:text-white dark:hover:bg-slate-700"
+                aria-label="Previous media"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <button
+                type="button"
+                onClick={onNext}
+                className="absolute right-4 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-lg transition hover:bg-white dark:bg-slate-800/90 dark:text-white dark:hover:bg-slate-700"
+                aria-label="Next media"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+            </>
+          )}
           {asset.type === 'video' ? (
             <video
               key={asset.id}

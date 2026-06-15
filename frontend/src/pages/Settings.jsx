@@ -3,6 +3,7 @@ import { Clock3, Palette, Save, Settings2, ShieldCheck } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Input, PageLoader } from '../components/ui'
+import { timezones } from '../lib/timezones'
 
 export default function Settings() {
   const { reload } = useAuth()
@@ -83,7 +84,7 @@ export default function Settings() {
             <SectionHeader icon={Palette} title="Workspace identity" description="Shown throughout the dashboard and team invitations." />
             <div className="grid gap-5 p-6 sm:grid-cols-2">
               <Input label="Workspace name" value={workspace.name} onChange={(event) => update('name', event.target.value)} disabled={!canUpdate} required />
-              <Input label="Timezone" value={workspace.timezone} onChange={(event) => update('timezone', event.target.value)} disabled={!canUpdate} placeholder="Asia/Dhaka" required />
+              <TimezoneSelect value={workspace.timezone} onChange={(value) => update('timezone', value)} disabled={!canUpdate} />
               <label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Brand color</span><div className="flex items-center gap-3"><input type="color" value={workspace.brand_color} onChange={(event) => update('brand_color', event.target.value)} disabled={!canUpdate} className="h-11 w-16 cursor-pointer rounded-xl border border-slate-300 bg-white p-1 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-800" /><Input value={workspace.brand_color} onChange={(event) => update('brand_color', event.target.value)} disabled={!canUpdate} className="max-w-40" /></div></label>
             </div>
           </Card>
@@ -115,6 +116,22 @@ function SectionHeader({ icon: Icon, title, description }) {
 
 function Select({ label, value, onChange, options, disabled }) {
   return <label className="block"><span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">{options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>
+}
+
+function TimezoneSelect({ value, onChange, disabled }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Timezone</span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+      >
+        {timezones().map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
+      </select>
+    </label>
+  )
 }
 
 function Usage({ label, metric }) {

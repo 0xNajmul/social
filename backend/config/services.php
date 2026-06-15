@@ -105,6 +105,13 @@ return [
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('YOUTUBE_REDIRECT_URI'),
     ],
+    'google_login' => [
+        'client_id' => env('GOOGLE_LOGIN_CLIENT_ID', env('GOOGLE_CLIENT_ID')),
+        'client_secret' => env('GOOGLE_LOGIN_CLIENT_SECRET', env('GOOGLE_CLIENT_SECRET')),
+        'redirect' => env('GOOGLE_LOGIN_REDIRECT_URI', rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/auth/google/callback'),
+        'frontend_redirect' => env('FRONTEND_URL', 'http://localhost:5173').'/auth/google/callback',
+        'admin_redirect' => env('ADMIN_URL', 'http://localhost:5174').'/login',
+    ],
     'twitter' => [
         'client_id' => env('TWITTER_CLIENT_ID'),
         'client_secret' => env('TWITTER_CLIENT_SECRET'),
@@ -130,12 +137,30 @@ return [
     'pinterest' => [
         'client_id' => env('PINTEREST_CLIENT_ID'),
         'client_secret' => env('PINTEREST_CLIENT_SECRET'),
-        'redirect' => env('PINTEREST_REDIRECT_URI'),
+        'redirect' => env(
+            'PINTEREST_REDIRECT_URI',
+            rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/pinterest/callback',
+        ),
+        'access_token' => env('PINTEREST_ACCESS_TOKEN'),
+        'api_base' => rtrim(env('PINTEREST_API_BASE', 'https://api.pinterest.com/v5'), '/'),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('PINTEREST_SCOPES', 'boards:read,pins:read,pins:write,user_accounts:read')),
+        ))),
     ],
     'reddit' => [
         'client_id' => env('REDDIT_CLIENT_ID'),
         'client_secret' => env('REDDIT_CLIENT_SECRET'),
-        'redirect' => env('REDDIT_REDIRECT_URI'),
+        'redirect' => env(
+            'REDDIT_REDIRECT_URI',
+            rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/reddit/callback',
+        ),
+        'api_base' => rtrim(env('REDDIT_API_BASE', 'https://oauth.reddit.com'), '/'),
+        'user_agent' => env('REDDIT_USER_AGENT', 'web:postflow.social-automation:v1.0.0 (by /u/your_reddit_username)'),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('REDDIT_SCOPES', 'identity,mysubreddits,read,submit,edit')),
+        ))),
     ],
     'bluesky' => [
         'pds_url' => rtrim(env('BLUESKY_PDS_URL', 'https://bsky.social'), '/'),

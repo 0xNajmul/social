@@ -3,9 +3,10 @@
 use App\Http\Controllers\Api\Admin\AdminDashboardController;
 use App\Http\Controllers\Api\Admin\AdminJobController;
 use App\Http\Controllers\Api\Admin\AdminPlanController;
+use App\Http\Controllers\Api\Admin\AdminPostController;
+use App\Http\Controllers\Api\Admin\AdminSettingController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminWorkspaceController;
-use App\Http\Controllers\Api\Admin\AdminSettingController;
 use App\Http\Controllers\Api\AiController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuthController;
@@ -18,6 +19,7 @@ use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\Api\MediaFolderController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OAuthController;
+use App\Http\Controllers\Api\PlannerNoteController;
 use App\Http\Controllers\Api\PostController;
 use App\Http\Controllers\Api\SocialAccountController;
 use App\Http\Controllers\Api\TeamController;
@@ -31,6 +33,8 @@ use Illuminate\Support\Facades\Route;
 */
 Route::post('register', [AuthController::class, 'register']);
 Route::post('login', [AuthController::class, 'login']);
+Route::get('auth/google/redirect', [AuthController::class, 'googleRedirect']);
+Route::get('auth/google/callback', [AuthController::class, 'googleCallback']);
 Route::get('plans', [BillingController::class, 'plans']); // public pricing page
 Route::get('oauth/{provider}/callback', [OAuthController::class, 'callback']);
 
@@ -43,6 +47,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('me', [AuthController::class, 'me']);
     Route::post('profile', [AuthController::class, 'updateProfile']);
+    Route::put('profile/password', [AuthController::class, 'updatePassword']);
 
     // Notifications (user scoped, no workspace required).
     Route::get('notifications', [NotificationController::class, 'index']);
@@ -80,11 +85,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('social/accounts', [SocialAccountController::class, 'index']);
         Route::post('social/accounts/connect', [SocialAccountController::class, 'connect']);
         Route::get('social/accounts/{socialAccount}/creator-info', [SocialAccountController::class, 'creatorInfo']);
+        Route::post('social/accounts/{socialAccount}/reddit/communities', [SocialAccountController::class, 'redditCommunities']);
         Route::post('social/accounts/{socialAccount}/refresh', [SocialAccountController::class, 'refresh']);
         Route::delete('social/accounts/{socialAccount}', [SocialAccountController::class, 'destroy']);
 
         // Posts / composer
         Route::apiResource('posts', PostController::class);
+        Route::get('planner-notes', [PlannerNoteController::class, 'index']);
+        Route::post('planner-notes', [PlannerNoteController::class, 'store']);
         Route::post('posts/{post}/schedule', [PostController::class, 'schedule']);
         Route::post('posts/{post}/publish', [PostController::class, 'publishNow']);
         Route::post('posts/{post}/cancel', [PostController::class, 'cancel']);
@@ -144,6 +152,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('users/{user}', [AdminUserController::class, 'destroy']);
 
         Route::apiResource('plans', AdminPlanController::class)->except(['show']);
+
+        Route::get('posts', [AdminPostController::class, 'index']);
 
         Route::get('workspaces', [AdminWorkspaceController::class, 'index']);
         Route::post('workspaces', [AdminWorkspaceController::class, 'store']);

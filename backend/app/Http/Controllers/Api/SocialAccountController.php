@@ -6,8 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\SocialAccountResource;
 use App\Jobs\RefreshSocialTokenJob;
 use App\Models\SocialAccount;
+use App\Models\User;
+use App\Models\Workspace;
 use App\Services\ActivityLogger;
 use App\Services\Billing\UsageGuard;
+use App\Services\Social\Platforms\PinterestService;
+use App\Services\Social\Platforms\RedditService;
 use App\Services\Social\Platforms\TikTokService;
 use App\Services\Social\SocialManager;
 use Illuminate\Http\JsonResponse;
@@ -72,7 +76,8 @@ class SocialAccountController extends Controller
         $credentials = config("services.{$group}");
 
         // Credential-based platforms connect directly instead of redirecting to OAuth.
-        if ($this->isDirectConnectPlatform($platform)) {
+        if ($this->isDirectConnectPlatform($platform)
+            || ($platform === 'pinterest' && ! empty($credentials['access_token']))) {
             return $this->connectDirectPlatform($request, $platform, $workspace->id, $request->user()->id);
         }
 
@@ -114,11 +119,35 @@ class SocialAccountController extends Controller
             }
         }
 
+        if ($platform === 'reddit') {
+            if (empty($credentials['client_id']) || empty($credentials['client_secret']) || empty($credentials['redirect'])) {
+                return response()->json([
+                    'message' => 'Reddit OAuth is not configured.',
+                    'hint' => 'Create a Reddit web app, then set REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, and REDDIT_REDIRECT_URI in backend/.env.',
+                ], 422);
+            }
+
+            if (str_contains((string) ($credentials['user_agent'] ?? ''), 'your_reddit_username')) {
+                return response()->json([
+                    'message' => 'Reddit requires a descriptive User-Agent.',
+                    'hint' => 'Replace your_reddit_username in REDDIT_USER_AGENT with the Reddit username that owns the app, then run php artisan config:clear.',
+                ], 422);
+            }
+        }
+
         if (str_starts_with($platform, 'linkedin_')
             && (empty($credentials['client_id']) || empty($credentials['client_secret']) || empty($credentials['redirect']))) {
             return response()->json([
                 'message' => 'LinkedIn OAuth is not configured.',
                 'hint' => 'Set LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, and LINKEDIN_REDIRECT_URI in backend/.env.',
+            ], 422);
+        }
+
+        if ($platform === 'pinterest'
+            && (empty($credentials['client_id']) || empty($credentials['client_secret']) || empty($credentials['redirect']))) {
+            return response()->json([
+                'message' => 'Pinterest OAuth is not configured.',
+                'hint' => 'Set PINTEREST_CLIENT_ID, PINTEREST_CLIENT_SECRET, and PINTEREST_REDIRECT_URI in backend/.env.',
             ], 422);
         }
 
@@ -181,6 +210,26 @@ class SocialAccountController extends Controller
         ]);
 
         return response()->json(['data' => $info]);
+    }
+
+    public function redditCommunities(SocialAccount $socialAccount, RedditService $reddit): JsonResponse
+    {
+        $this->authorize('view', $socialAccount);
+
+        if ($socialAccount->platform !== 'reddit') {
+            return response()->json(['message' => 'Community sync is only available for Reddit accounts.'], 422);
+        }
+
+        try {
+            $communities = $reddit->syncCommunities($socialAccount);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'data' => $communities,
+            'message' => 'Reddit communities synchronized.',
+        ]);
     }
 
     protected function authorizeUrl(string $platform, array $credentials, string $state): string
@@ -264,6 +313,15 @@ class SocialAccountController extends Controller
             $params['scope'] = implode(' ', $credentials[$scopeKey] ?? []);
         }
 
+        if ($oauthGroup === 'pinterest') {
+            $params['scope'] = implode(',', $credentials['scopes'] ?? []);
+        }
+
+        if ($oauthGroup === 'reddit') {
+            $params['scope'] = implode(' ', $credentials['scopes'] ?? []);
+            $params['duration'] = 'permanent';
+        }
+
         return $base.'?'.http_build_query($params);
     }
 
@@ -302,8 +360,57 @@ class SocialAccountController extends Controller
             'telegram' => $this->connectTelegram($request, $workspaceId, $userId),
             'discord' => $this->connectDiscord($request, $workspaceId, $userId),
             'bluesky' => $this->connectBluesky($request, $workspaceId, $userId),
+            'pinterest' => $this->connectPinterestToken($workspaceId, $userId),
             default => response()->json(['message' => 'Unsupported direct connection platform.'], 422),
         };
+    }
+
+    protected function connectPinterestToken(int $workspaceId, int $userId): JsonResponse
+    {
+        $credentials = config('services.pinterest', []);
+        $token = (string) ($credentials['access_token'] ?? '');
+        if ($token === '') {
+            return response()->json(['message' => 'PINTEREST_ACCESS_TOKEN is not configured.'], 422);
+        }
+
+        $workspace = Workspace::findOrFail($workspaceId);
+        $user = User::findOrFail($userId);
+
+        try {
+            $accounts = app(PinterestService::class)->connectBoards(
+                workspace: $workspace,
+                user: $user,
+                accessToken: $token,
+                tokenMeta: ['scopes' => $credentials['scopes'] ?? [], 'source' => 'configured_token'],
+            );
+        } catch (\RuntimeException $e) {
+            if (! empty($credentials['client_id']) && ! empty($credentials['client_secret']) && ! empty($credentials['redirect'])) {
+                $state = encrypt([
+                    'workspace_id' => $workspaceId,
+                    'platform' => 'pinterest',
+                    'user_id' => $userId,
+                    'nonce' => Str::random(16),
+                ]);
+
+                return response()->json([
+                    'mode' => 'oauth',
+                    'redirect_url' => $this->authorizeUrl('pinterest', $credentials, $state),
+                    'message' => 'The configured Pinterest token was rejected. Authorize the account to create a fresh token.',
+                ]);
+            }
+
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        foreach ($accounts as $account) {
+            $this->activity->log($workspaceId, 'account.connected', $account, "Connected Pinterest board: {$account->name}");
+        }
+
+        return response()->json([
+            'mode' => 'credentials',
+            'data' => SocialAccountResource::collection($accounts),
+            'connected_count' => count($accounts),
+        ], 201);
     }
 
     protected function connectBluesky(Request $request, int $workspaceId, int $userId): JsonResponse

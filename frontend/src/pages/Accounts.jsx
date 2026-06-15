@@ -12,6 +12,7 @@ export default function Accounts() {
   const [platforms, setPlatforms] = useState([])
   const [showConnect, setShowConnect] = useState(false)
   const [connecting, setConnecting] = useState(null)
+  const [syncing, setSyncing] = useState(null)
   const [botSetup, setBotSetup] = useState(null) // credential-based connection form
   const [chatId, setChatId] = useState('')
   const [webhookUrl, setWebhookUrl] = useState('')
@@ -102,6 +103,19 @@ export default function Accounts() {
     alert('Token refresh queued.')
   }
 
+  const syncReddit = async (id) => {
+    setSyncing(id)
+    try {
+      const { data } = await api.post(`/social/accounts/${id}/reddit/communities`)
+      alert(`${data.data.length} Reddit communities synchronized.`)
+      load()
+    } catch (error) {
+      alert(error.response?.data?.message || 'Could not synchronize Reddit communities.')
+    } finally {
+      setSyncing(null)
+    }
+  }
+
   if (!accounts) return <PageLoader />
 
   return (
@@ -153,13 +167,23 @@ export default function Accounts() {
                 )}
               <p className="mt-3 text-xs text-slate-400">{acc.platform_label}</p>
               {acc.account_type && <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-300">{acc.account_type} account</p>}
-              <div className="mt-4 flex gap-2">
+              {acc.platform === 'reddit' && (
+                <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-300">
+                  {acc.reddit_communities?.length || 0} communities ready
+                </p>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
                 {acc.needs_reconnect ? (
                   <Button size="sm" variant="secondary" onClick={() => reconnect(acc)} loading={connecting === acc.platform}>
                     <RefreshCw className="h-3.5 w-3.5" /> Reconnect
                   </Button>
                 ) : (
                   <Button size="sm" variant="secondary" onClick={() => refresh(acc.id)}><RefreshCw className="h-3.5 w-3.5" /> Refresh</Button>
+                )}
+                {acc.platform === 'reddit' && (
+                  <Button size="sm" variant="secondary" loading={syncing === acc.id} onClick={() => syncReddit(acc.id)}>
+                    Sync communities
+                  </Button>
                 )}
                 <Button size="sm" variant="ghost" onClick={() => disconnect(acc.id)} className="text-rose-500"><Trash2 className="h-3.5 w-3.5" /></Button>
               </div>
