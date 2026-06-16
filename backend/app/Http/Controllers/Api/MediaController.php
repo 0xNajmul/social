@@ -61,13 +61,31 @@ class MediaController extends Controller
         return response()->json(['data' => new MediaResource($asset)], 201);
     }
 
+    public function show(MediaAsset $media): JsonResponse
+    {
+        $this->authorize('view', $media);
+
+        return response()->json(['data' => new MediaResource($media)]);
+    }
+
     public function update(Request $request, MediaAsset $media): JsonResponse
     {
         $this->authorize('view', $media);
         $data = $request->validate([
             'folder_id' => ['nullable', 'integer', 'exists:media_folders,id'],
             'tags' => ['nullable', 'array'],
+            'original_name' => ['sometimes', 'string', 'max:255'],
+            'alt_text' => ['nullable', 'string', 'max:255'],
         ]);
+
+        $meta = $media->meta ?? [];
+        if ($request->has('alt_text')) {
+            $meta['alt_text'] = $data['alt_text'] ?? null;
+        }
+
+        unset($data['alt_text']);
+        $data['meta'] = $meta;
+
         $media->update($data);
 
         return response()->json(['data' => new MediaResource($media)]);

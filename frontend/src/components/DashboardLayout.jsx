@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, PenSquare, CalendarDays, Image, Share2, Workflow,
+  LayoutDashboard, PenSquare, CalendarDays, Image, CircleUserRound, Workflow,
   BarChart3, Users, CreditCard, Settings, Code2, Moon, Sun, LogOut,
   Menu, ChevronDown, Sparkles, UserRound, ClipboardList,
   Building2, Gift,
@@ -18,7 +18,7 @@ const NAV = [
   { to: '/app/composer', label: 'Composer', icon: PenSquare },
   { to: '/app/organizer', label: 'Organizer', icon: CalendarDays },
   { to: '/app/planner', label: 'Planner', icon: ClipboardList },
-  { to: '/app/accounts', label: 'Accounts', icon: Share2 },
+  { to: '/app/accounts', label: 'Accounts', icon: CircleUserRound },
   { to: '/app/media', label: 'Media Library', icon: Image },
   { to: '/app/automations', label: 'Automations', icon: Workflow },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
@@ -73,6 +73,7 @@ export default function DashboardLayout() {
     navigate('/login')
   }
   const currentPlan = activeWorkspace?.subscription?.plan?.name || activeWorkspace?.subscription?.plan_name || 'Free plan'
+  const contentFullWidth = activeWorkspace?.settings?.content_width === 'full'
   const toggleSidebar = () => {
     setSidebarHidden((hidden) => {
       const next = !hidden
@@ -305,7 +306,7 @@ export default function DashboardLayout() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 animate-fade-in">
+        <main className={clsx('px-4 py-6 sm:px-6 animate-fade-in', contentFullWidth ? 'w-full' : 'mx-auto max-w-7xl')}>
           <Outlet />
         </main>
       </div>

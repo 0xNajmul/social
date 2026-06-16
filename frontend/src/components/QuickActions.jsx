@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Bot,
@@ -18,8 +18,9 @@ import api, { workspaceStore } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Button, Card, Input, Modal, Textarea } from './ui'
 import MediaDropzone from './composer/MediaDropzone'
-import { ComposerContent } from '../pages/Composer'
 import { currentTimezone, timezones } from '../lib/timezones'
+
+const ComposerContent = lazy(() => import('../pages/Composer').then((module) => ({ default: module.ComposerContent })))
 
 const ACTIONS = [
   { key: 'composer', label: 'New post', description: 'Compose and publish content.', icon: PenSquare },
@@ -33,7 +34,7 @@ const ACTIONS = [
 
 export default function QuickActions() {
   const navigate = useNavigate()
-  const { reload, switchWorkspace } = useAuth()
+  const { reload } = useAuth()
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(null)
   const menuRef = useRef(null)
@@ -76,13 +77,13 @@ export default function QuickActions() {
         </button>
 
         {open && (
-          <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-800" role="menu">
+          <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-800" role="menu">
             {ACTIONS.map(({ key, label, description, icon: Icon }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => choose(key)}
-                className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-700"
+                className="flex w-full items-start gap-3 border-b border-slate-100 px-3 py-2.5 text-left transition last:border-b-0 hover:bg-slate-100 dark:border-slate-700/70 dark:hover:bg-slate-700"
                 role="menuitem"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
@@ -98,13 +99,15 @@ export default function QuickActions() {
         )}
       </div>
 
-      <Modal open={modalType === 'composer'} title="New post" description="Compose a post without leaving this page." onClose={closeModal} size="xl">
+      <Modal open={modalType === 'composer'} title="New post" description="Compose a post without leaving this page." onClose={closeModal} size="screen" fullscreenable>
         <div className="p-5">
-          <ComposerContent modal initialScheduledAt={active?.scheduledAt} onDone={closeModal} />
+          <Suspense fallback={<div className="flex h-48 items-center justify-center text-sm text-slate-500 dark:text-slate-400">Loading composer...</div>}>
+            <ComposerContent modal initialScheduledAt={active?.scheduledAt} onDone={closeModal} />
+          </Suspense>
         </div>
       </Modal>
 
-      <Modal open={modalType === 'planner'} title="New planner" description="Save a quick plan or note into Planner." onClose={closeModal} size="lg">
+      <Modal open={modalType === 'planner'} title="New planner" description="Save a quick plan or note into Planner." onClose={closeModal} size="lg" fullscreenable>
         <PlannerQuickForm onDone={closeModal} />
       </Modal>
 
@@ -124,7 +127,7 @@ export default function QuickActions() {
       </Modal>
 
       <Modal open={modalType === 'workspace'} title="New workspace" description="Create a separate workspace for a brand or team." onClose={closeModal} size="lg">
-        <WorkspaceQuickForm onDone={closeModal} reload={reload} switchWorkspace={switchWorkspace} />
+        <WorkspaceQuickForm onDone={closeModal} reload={reload} />
       </Modal>
 
       <Modal open={modalType === 'team'} title="Invite team member" description="Send an invitation without leaving this page." onClose={closeModal} size="lg">
@@ -182,7 +185,7 @@ function MediaUploadQuickForm({ onDone }) {
   )
 }
 
-function WorkspaceQuickForm({ onDone, reload, switchWorkspace }) {
+function WorkspaceQuickForm({ onDone, reload }) {
   const [form, setForm] = useState({ name: '', timezone: currentTimezone() })
   const [busy, setBusy] = useState(false)
 
@@ -192,8 +195,8 @@ function WorkspaceQuickForm({ onDone, reload, switchWorkspace }) {
     try {
       const { data } = await api.post('/workspaces', form)
       workspaceStore.set(data.data.slug)
+      await api.post(`/workspaces/${data.data.slug}/switch`)
       await reload()
-      await switchWorkspace(data.data.slug)
       onDone()
     } catch (error) {
       alert(error.response?.data?.message || 'Could not create workspace.')

@@ -15,6 +15,7 @@ import { defaultRedditOptions, isRedditAccount } from '../components/composer/re
 import PlatformPostPreview from '../components/composer/PlatformPostPreview'
 import { inferPostType, partitionAccounts } from '../lib/platformMedia'
 import { useAuth } from '../context/AuthContext'
+import DateTimeField from '../components/DateTimeField'
 
 export function ComposerContent({ modal = false, onDone, initialScheduledAt = null }) {
   const navigate = useNavigate()
@@ -348,12 +349,11 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
           )}
 
           <Card className="p-5">
-            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Schedule for</label>
-            <input
+            <DateTimeField
+              label="Schedule for"
               type="datetime-local"
               value={scheduledAt}
               onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             />
             <div className="mt-4 flex flex-wrap gap-2">
               <Button onClick={() => action('schedule')} loading={saving} disabled={mediaUploading || eligible.length === 0}>

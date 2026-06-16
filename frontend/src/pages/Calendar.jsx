@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  CalendarClock,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -17,6 +16,7 @@ import {
 import api from '../lib/api'
 import { Button, Card, PageLoader } from '../components/ui'
 import PlatformBadge from '../components/PlatformBadge'
+import DateTimeField from '../components/DateTimeField'
 
 const VIEWS = [
   { id: 'day', label: 'Day', icon: List },
@@ -658,19 +658,14 @@ function PostDetailsModal({ post, action, onClose, onSave, onDelete }) {
           )}
 
           <form onSubmit={submit} className="space-y-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-            <label className="block">
-              <span className="mb-1.5 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-                <CalendarClock className="h-4 w-4" /> Scheduled date and time
-              </span>
-              <input
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(event) => setScheduledAt(event.target.value)}
-                disabled={!editable || Boolean(action)}
-                required
-                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-              />
-            </label>
+            <DateTimeField
+              label="Scheduled date and time"
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(event) => setScheduledAt(event.target.value)}
+              disabled={!editable || Boolean(action)}
+              required
+            />
             {!editable && (
               <p className="text-xs text-amber-600 dark:text-amber-400">
                 {planner ? 'Planner notes are shown on the calendar from their saved planner date.' : 'Published or currently publishing posts cannot be rescheduled.'}

@@ -4,6 +4,7 @@ import { Users, Building2, Share2, FileText, DollarSign, Activity, CalendarDays 
 import clsx from 'clsx'
 import api from '../lib/api'
 import { Card, StatCard, PageLoader, Badge } from '../components/ui'
+import DateTimeField from '../components/DateTimeField'
 
 const RANGES = [
   ['today', 'Today'],
@@ -58,9 +59,9 @@ export default function Dashboard() {
               <span className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-200">
                 <CalendarDays className="h-4 w-4 text-brand-400" /> Custom
               </span>
-              <input type="date" value={custom.from} onChange={(event) => setCustom({ ...custom, from: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand-500" />
+              <DateTimeField type="date" value={custom.from} onChange={(event) => setCustom({ ...custom, from: event.target.value })} />
               <span className="hidden text-xs text-slate-500 sm:inline">to</span>
-              <input type="date" value={custom.to} onChange={(event) => setCustom({ ...custom, to: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand-500" />
+              <DateTimeField type="date" value={custom.to} onChange={(event) => setCustom({ ...custom, to: event.target.value })} />
             </div>
           )}
         </div>

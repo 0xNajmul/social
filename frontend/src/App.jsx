@@ -12,6 +12,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Composer = lazy(() => import('./pages/Composer'))
 const Accounts = lazy(() => import('./pages/Accounts'))
 const Media = lazy(() => import('./pages/Media'))
+const MediaEdit = lazy(() => import('./pages/MediaEdit'))
 const Automations = lazy(() => import('./pages/Automations'))
 const Analytics = lazy(() => import('./pages/Analytics'))
 const Team = lazy(() => import('./pages/Team'))
@@ -22,6 +23,7 @@ const Profile = lazy(() => import('./pages/Profile'))
 const Planner = lazy(() => import('./pages/Planner'))
 const Organizer = lazy(() => import('./pages/Organizer'))
 const Workspaces = lazy(() => import('./pages/Workspaces'))
+const WorkspaceEdit = lazy(() => import('./pages/WorkspaceEdit'))
 const InviteEarn = lazy(() => import('./pages/InviteEarn'))
 const AuthTokenLanding = lazy(() => import('./pages/AuthTokenLanding'))
 const InvitationAccept = lazy(() => import('./pages/InvitationAccept'))
@@ -58,12 +60,14 @@ export default function App() {
             >
               <Route index element={<Dashboard />} />
               <Route path="workspaces" element={<Workspaces />} />
+              <Route path="workspaces/:id" element={<WorkspaceEdit />} />
               <Route path="composer" element={<Composer />} />
               <Route path="calendar" element={<Navigate to="/app/organizer" replace />} />
               <Route path="organizer" element={<Organizer />} />
               <Route path="planner" element={<Planner />} />
               <Route path="accounts" element={<Accounts />} />
               <Route path="media" element={<Media />} />
+              <Route path="media/:id/edit" element={<MediaEdit />} />
               <Route path="automations" element={<Automations />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="team" element={<Team />} />

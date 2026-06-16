@@ -65,10 +65,10 @@ function ScheduledTable({ rows }) {
     <Table columns={['Post', 'Variant', 'Scheduled at', 'Status']}>
       {rows.map((row) => (
         <tr key={row.id} className="border-t border-slate-800">
-          <td className="p-4"><p className="max-w-md truncate text-white">{row.variant?.post?.content || 'Post'}</p></td>
-          <td className="p-4 text-slate-400">#{row.post_variant_id}</td>
-          <td className="p-4 text-slate-400">{row.scheduled_at ? new Date(row.scheduled_at).toLocaleString() : '-'}</td>
-          <td className="p-4"><Badge>{row.status}</Badge></td>
+          <td className="px-3 py-2"><p className="max-w-md truncate text-white">{row.variant?.post?.content || 'Post'}</p></td>
+          <td className="px-3 py-2 text-slate-400">#{row.post_variant_id}</td>
+          <td className="px-3 py-2 text-slate-400">{row.scheduled_at ? new Date(row.scheduled_at).toLocaleString() : '-'}</td>
+          <td className="px-3 py-2"><Badge>{row.status}</Badge></td>
         </tr>
       ))}
       {rows.length === 0 && <EmptyRow colSpan={4} text="No scheduled posts." />}
@@ -81,10 +81,10 @@ function FailedPostsTable({ rows }) {
     <Table columns={['Platform', 'Post', 'Error', 'Created']}>
       {rows.map((row) => (
         <tr key={row.id} className="border-t border-slate-800">
-          <td className="p-4"><Badge color="rose">{row.platform}</Badge></td>
-          <td className="p-4"><p className="max-w-sm truncate text-slate-300">{row.variant?.post?.content || 'Post'}</p></td>
-          <td className="p-4"><p className="max-w-md truncate text-rose-300">{row.error_message || '-'}</p></td>
-          <td className="p-4 text-slate-500">{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</td>
+          <td className="px-3 py-2"><Badge color="rose">{row.platform}</Badge></td>
+          <td className="px-3 py-2"><p className="max-w-sm truncate text-slate-300">{row.variant?.post?.content || 'Post'}</p></td>
+          <td className="px-3 py-2"><p className="max-w-md truncate text-rose-300">{row.error_message || '-'}</p></td>
+          <td className="px-3 py-2 text-slate-500">{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</td>
         </tr>
       ))}
       {rows.length === 0 && <EmptyRow colSpan={4} text="No failed posts." />}
@@ -97,10 +97,10 @@ function FailedJobsTable({ rows }) {
     <Table columns={['UUID', 'Queue', 'Exception', 'Failed at']}>
       {rows.map((row) => (
         <tr key={row.id || row.uuid} className="border-t border-slate-800">
-          <td className="p-4"><code className="text-xs text-slate-400">{row.uuid || row.id}</code></td>
-          <td className="p-4 text-slate-400">{row.queue || '-'}</td>
-          <td className="p-4"><p className="max-w-xl truncate text-rose-300">{row.exception?.split('\n')[0] || '-'}</p></td>
-          <td className="p-4 text-slate-500">{row.failed_at ? new Date(row.failed_at).toLocaleString() : '-'}</td>
+          <td className="px-3 py-2"><code className="text-xs text-slate-400">{row.uuid || row.id}</code></td>
+          <td className="px-3 py-2 text-slate-400">{row.queue || '-'}</td>
+          <td className="px-3 py-2"><p className="max-w-xl truncate text-rose-300">{row.exception?.split('\n')[0] || '-'}</p></td>
+          <td className="px-3 py-2 text-slate-500">{row.failed_at ? new Date(row.failed_at).toLocaleString() : '-'}</td>
         </tr>
       ))}
       {rows.length === 0 && <EmptyRow colSpan={4} text="No failed queue jobs." />}
@@ -111,9 +111,9 @@ function FailedJobsTable({ rows }) {
 function Table({ columns, children }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] text-left text-sm">
-        <thead className="bg-slate-800/40 text-xs uppercase tracking-wide text-slate-500">
-          <tr>{columns.map((column) => <th key={column} className="p-4 font-semibold">{column}</th>)}</tr>
+      <table className="w-full min-w-[900px] text-left text-xs">
+        <thead className="bg-slate-800/40 uppercase tracking-wide text-slate-500">
+          <tr>{columns.map((column) => <th key={column} className="px-3 py-2 font-semibold">{column}</th>)}</tr>
         </thead>
         <tbody>{children}</tbody>
       </table>
@@ -122,5 +122,5 @@ function Table({ columns, children }) {
 }
 
 function EmptyRow({ colSpan, text }) {
-  return <tr><td colSpan={colSpan} className="p-10 text-center text-slate-500">{text}</td></tr>
+  return <tr><td colSpan={colSpan} className="px-3 py-10 text-center text-slate-500">{text}</td></tr>
 }

@@ -10,7 +10,6 @@ import {
   Columns3,
   FileText,
   ListFilter,
-  Plus,
   Search,
   Settings2,
   Table2,
@@ -105,10 +104,6 @@ export default function Organizer() {
     if (!VALID_FILTERS.includes(nextFilter)) return
     setFilter(nextFilter)
     syncOrganizerUrl(view, nextFilter)
-  }
-
-  const openComposerModal = () => {
-    window.dispatchEvent(new CustomEvent('postflow:quick-action', { detail: { type: 'composer' } }))
   }
 
   const toggleVisibleView = (viewKey) => {
@@ -236,7 +231,7 @@ export default function Organizer() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Track posts and planner notes in table, Kanban, timeline, and calendar views.</p>
         </div>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
-          <div className="flex flex-wrap rounded-2xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-wrap rounded-xl border border-slate-200 bg-white p-0.5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {FILTERS.map((item) => {
               const Icon = item.icon
               return (
@@ -245,24 +240,27 @@ export default function Organizer() {
                   type="button"
                   onClick={() => changeFilter(item.key)}
                   className={clsx(
-                    'inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition',
+                    'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition',
                     filter === item.key
                       ? 'bg-brand-600 text-white shadow-sm'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white',
                   )}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5" />
                   <span>{item.label}</span>
                   <span className={clsx('rounded-full px-2 py-0.5 text-xs', filter === item.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300')}>{counts[item.key]}</span>
                 </button>
               )
             })}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button type="button" onClick={openComposerModal}><Plus className="h-4 w-4" /> Create post</Button>
-            <Button type="button" variant="secondary" onClick={() => setSettingsOpen(true)} aria-label="Open organizer settings">
-              <Settings2 className="h-4 w-4" />
-            </Button>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+              aria-label="Open organizer filters"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              Filter
+            </button>
           </div>
         </div>
       </div>
@@ -313,8 +311,7 @@ export default function Organizer() {
             <EmptyState
               icon={CalendarClock}
               title="No organizer items found"
-              description={search ? 'Try a different search or status filter.' : 'Create a post or planner note to start filling the organizer.'}
-              action={!search && <Button type="button" size="sm" onClick={openComposerModal}><Plus className="h-4 w-4" /> Create post</Button>}
+              description={search ? 'Try a different search or status filter.' : 'Use the top navigation New menu to create posts or planner notes.'}
             />
           </div>
         ) : (

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bold, Check, Italic, LayoutGrid, List, Plus, Sparkles, Table2, Underline } from 'lucide-react'
+import { Bold, Check, Edit3, Italic, LayoutGrid, List, Plus, Sparkles, Table2, Trash2, Underline } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
 import { Badge, Button, Card, Input, Modal, PageLoader, Textarea } from '../components/ui'
@@ -8,9 +8,11 @@ export default function Planner() {
   const [notes, setNotes] = useState(null)
   const [view, setView] = useState(() => localStorage.getItem('planner_notes_view') || 'card')
   const [planOpen, setPlanOpen] = useState(false)
+  const [editingNote, setEditingNote] = useState(null)
   const [planForm, setPlanForm] = useState({ title: '', content_html: '', ai_prompt: '' })
   const [planErrors, setPlanErrors] = useState({})
   const [planBusy, setPlanBusy] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(null)
   const [aiBusy, setAiBusy] = useState(false)
 
   const loadNotes = () => {
@@ -24,9 +26,27 @@ export default function Planner() {
   }, [])
 
   const openCreatePlan = () => {
+    setEditingNote(null)
     setPlanForm({ title: '', content_html: '', ai_prompt: '' })
     setPlanErrors({})
     setPlanOpen(true)
+  }
+
+  const openEditPlan = (note) => {
+    setEditingNote(note)
+    setPlanForm({
+      title: note.title || '',
+      content_html: note.content_html || '',
+      ai_prompt: note.meta?.ai_prompt || '',
+    })
+    setPlanErrors({})
+    setPlanOpen(true)
+  }
+
+  const closePlan = () => {
+    setPlanOpen(false)
+    setEditingNote(null)
+    setPlanErrors({})
   }
 
   const changeView = (nextView) => {
@@ -62,17 +82,36 @@ export default function Planner() {
     setPlanBusy(true)
     setPlanErrors({})
     try {
-      const { data } = await api.post('/planner-notes', {
+      const payload = {
         title: planForm.title,
         content_html: planForm.content_html,
         ai_prompt: planForm.ai_prompt,
+      }
+      const { data } = editingNote
+        ? await api.put(`/planner-notes/${editingNote.id}`, payload)
+        : await api.post('/planner-notes', payload)
+      setNotes((current) => {
+        if (editingNote) return (current || []).map((note) => note.id === editingNote.id ? data.data : note)
+        return [data.data, ...(current || [])]
       })
-      setNotes((current) => [data.data, ...(current || [])])
-      setPlanOpen(false)
+      closePlan()
     } catch (saveError) {
       setPlanErrors(saveError.response?.data?.errors || { general: saveError.response?.data?.message || 'Could not save this plan.' })
     } finally {
       setPlanBusy(false)
+    }
+  }
+
+  const deletePlan = async (note) => {
+    if (!window.confirm(`Delete "${note.title}"?`)) return
+    setDeleteBusy(note.id)
+    try {
+      await api.delete(`/planner-notes/${note.id}`)
+      setNotes((current) => (current || []).filter((item) => item.id !== note.id))
+    } catch (deleteError) {
+      alert(deleteError.response?.data?.message || 'Could not delete this plan.')
+    } finally {
+      setDeleteBusy(null)
     }
   }
 
@@ -113,7 +152,9 @@ export default function Planner() {
 
       <Card className="overflow-hidden">
         {notes.length ? (
-          view === 'table' ? <PlannerNotesTable notes={notes} /> : <PlannerNotesCards notes={notes} />
+          view === 'table'
+            ? <PlannerNotesTable notes={notes} onEdit={openEditPlan} onDelete={deletePlan} deleteBusy={deleteBusy} />
+            : <PlannerNotesCards notes={notes} onEdit={openEditPlan} onDelete={deletePlan} deleteBusy={deleteBusy} />
         ) : (
           <div className="p-4">
             <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-8 text-center dark:border-slate-700">
@@ -126,10 +167,11 @@ export default function Planner() {
 
       <Modal
         open={planOpen}
-        title="Create plan"
-        description="Write a planning note, campaign brief, or AI-assisted draft and save it to this workspace."
-        onClose={() => setPlanOpen(false)}
+        title={editingNote ? 'Edit plan' : 'Create plan'}
+        description={editingNote ? 'Update this saved plan, note, or campaign brief.' : 'Write a planning note, campaign brief, or AI-assisted draft and save it to this workspace.'}
+        onClose={closePlan}
         size="xl"
+        fullscreenable
       >
         <form onSubmit={savePlan} className="space-y-5 p-5">
           {planErrors.general && <Notice type="error">{planErrors.general}</Notice>}
@@ -169,8 +211,8 @@ export default function Planner() {
           </div>
 
           <div className="flex justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
-            <Button type="button" variant="ghost" onClick={() => setPlanOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={planBusy}><Check className="h-4 w-4" /> Save plan</Button>
+            <Button type="button" variant="ghost" onClick={closePlan}>Cancel</Button>
+            <Button type="submit" loading={planBusy}><Check className="h-4 w-4" /> {editingNote ? 'Update plan' : 'Save plan'}</Button>
           </div>
         </form>
       </Modal>
@@ -178,7 +220,7 @@ export default function Planner() {
   )
 }
 
-function PlannerNotesCards({ notes }) {
+function PlannerNotesCards({ notes, onEdit, onDelete, deleteBusy }) {
   return (
     <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
       {notes.map((note) => (
@@ -188,23 +230,30 @@ function PlannerNotesCards({ notes }) {
             <Badge color="indigo">Note</Badge>
           </div>
           <p className="mt-3 line-clamp-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{note.excerpt || 'No preview text.'}</p>
-          <p className="mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-400">{new Date(note.created_at).toLocaleDateString()}</p>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{new Date(note.created_at).toLocaleDateString()}</p>
+            <div className="flex gap-1.5">
+              <PlanActionIcon tone="edit" label="Edit plan" onClick={() => onEdit(note)}><Edit3 className="h-3.5 w-3.5" /></PlanActionIcon>
+              <PlanActionIcon tone="delete" label="Delete plan" disabled={deleteBusy === note.id} onClick={() => onDelete(note)}><Trash2 className="h-3.5 w-3.5" /></PlanActionIcon>
+            </div>
+          </div>
         </article>
       ))}
     </div>
   )
 }
 
-function PlannerNotesTable({ notes }) {
+function PlannerNotesTable({ notes, onEdit, onDelete, deleteBusy }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] text-left text-sm">
+      <table className="w-full min-w-[820px] text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
           <tr>
             <th className="px-5 py-3 font-semibold">Plan</th>
             <th className="px-5 py-3 font-semibold">Preview</th>
             <th className="px-5 py-3 font-semibold">Owner</th>
             <th className="px-5 py-3 font-semibold">Created</th>
+            <th className="px-5 py-3 text-right font-semibold">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -219,11 +268,36 @@ function PlannerNotesTable({ notes }) {
               <td className="max-w-md px-5 py-4 text-xs leading-5 text-slate-500 dark:text-slate-400">{note.excerpt || 'No preview text.'}</td>
               <td className="px-5 py-4 text-slate-500 dark:text-slate-400">{note.author?.name || 'Unknown'}</td>
               <td className="whitespace-nowrap px-5 py-4 text-slate-500 dark:text-slate-400">{new Date(note.created_at).toLocaleDateString()}</td>
+              <td className="px-5 py-4">
+                <div className="flex justify-end gap-1.5">
+                  <PlanActionIcon tone="edit" label="Edit plan" onClick={() => onEdit(note)}><Edit3 className="h-3.5 w-3.5" /></PlanActionIcon>
+                  <PlanActionIcon tone="delete" label="Delete plan" disabled={deleteBusy === note.id} onClick={() => onDelete(note)}><Trash2 className="h-3.5 w-3.5" /></PlanActionIcon>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+  )
+}
+
+function PlanActionIcon({ tone, label, children, ...props }) {
+  const tones = {
+    edit: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/50 dark:text-amber-300 dark:hover:bg-amber-900/70',
+    delete: 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-rose-900/60 dark:bg-rose-950/50 dark:text-rose-300 dark:hover:bg-rose-900/70 dark:disabled:border-slate-800 dark:disabled:bg-slate-900 dark:disabled:text-slate-600',
+  }
+
+  return (
+    <button
+      type="button"
+      className={clsx('inline-flex h-8 w-8 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-60', tones[tone])}
+      aria-label={label}
+      title={label}
+      {...props}
+    >
+      {children}
+    </button>
   )
 }
 

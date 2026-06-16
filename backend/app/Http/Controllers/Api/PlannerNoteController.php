@@ -67,6 +67,48 @@ class PlannerNoteController extends Controller
         return response()->json(['data' => $this->serialize($note->load('author'))], 201);
     }
 
+    public function update(Request $request, PlannerNote $plannerNote): JsonResponse
+    {
+        $this->ensureCanManage($request, $plannerNote);
+
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'content_html' => ['required', 'string', 'max:50000'],
+            'ai_prompt' => ['nullable', 'string', 'max:1000'],
+            'scheduled_at' => ['nullable', 'date'],
+        ]);
+
+        $contentText = trim(html_entity_decode(strip_tags($data['content_html'])));
+
+        $plannerNote->update([
+            'title' => $data['title'],
+            'content_html' => $data['content_html'],
+            'content_text' => Str::limit($contentText, 12000, ''),
+            'meta' => array_filter([
+                'ai_prompt' => $data['ai_prompt'] ?? null,
+                'scheduled_at' => $data['scheduled_at'] ?? null,
+            ]),
+        ]);
+
+        $this->activity->log($plannerNote->workspace_id, 'planner_note.updated', $plannerNote, "Updated planner note: {$plannerNote->title}");
+
+        return response()->json(['data' => $this->serialize($plannerNote->fresh()->load('author'))]);
+    }
+
+    public function destroy(Request $request, PlannerNote $plannerNote): JsonResponse
+    {
+        $this->ensureCanManage($request, $plannerNote);
+
+        $title = $plannerNote->title;
+        $workspaceId = $plannerNote->workspace_id;
+
+        $plannerNote->delete();
+
+        $this->activity->log($workspaceId, 'planner_note.deleted', null, "Deleted planner note: {$title}");
+
+        return response()->json(['message' => 'Planner note deleted.']);
+    }
+
     protected function serialize(PlannerNote $note): array
     {
         return [
@@ -85,5 +127,18 @@ class PlannerNoteController extends Controller
             'created_at' => $note->created_at,
             'updated_at' => $note->updated_at,
         ];
+    }
+
+    protected function ensureCanManage(Request $request, PlannerNote $note): void
+    {
+        $workspace = workspace();
+
+        abort_unless($note->workspace_id === $workspace->id, 404);
+
+        $role = $request->user()->roleIn($workspace);
+
+        if (! ($role?->atLeast(WorkspaceRole::Editor) ?? false)) {
+            abort(403);
+        }
     }
 }

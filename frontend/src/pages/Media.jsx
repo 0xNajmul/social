@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Upload, Trash2, FileVideo, Image as ImageIcon, FileText, Search, X, Play, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../lib/api'
 import { mediaUrl } from '../lib/media'
@@ -49,6 +50,10 @@ export default function Media() {
     await api.delete(`/media/${id}`)
     if (assets?.[previewIndex]?.id === id) setPreviewIndex(null)
     load()
+  }
+
+  const updateAsset = (updated) => {
+    setAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
   }
 
   if (!assets) return <PageLoader />
@@ -138,14 +143,21 @@ export default function Media() {
           onClose={() => setPreviewIndex(null)}
           onNext={() => setPreviewIndex((index) => (index + 1) % assets.length)}
           onPrevious={() => setPreviewIndex((index) => (index - 1 + assets.length) % assets.length)}
+          onSaved={updateAsset}
         />
       )}
     </div>
   )
 }
 
-function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation }) {
+function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, onSaved }) {
   const src = mediaUrl(asset.url)
+  const [form, setForm] = useState({ original_name: asset.original_name || '', alt_text: asset.alt_text || '' })
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setForm({ original_name: asset.original_name || '', alt_text: asset.alt_text || '' })
+  }, [asset])
 
   useEffect(() => {
     const handleKey = (event) => {
@@ -159,10 +171,23 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation }
     return () => document.removeEventListener('keydown', handleKey)
   }, [hasNavigation, onClose, onNext, onPrevious])
 
+  const save = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      const { data } = await api.put(`/media/${asset.id}`, form)
+      onSaved(data.data)
+    } catch (error) {
+      alert(error.response?.data?.message || 'Could not update media details.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+        className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
@@ -175,7 +200,8 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation }
           </button>
         </div>
 
-        <div className="relative flex max-h-[70vh] min-h-[240px] items-center justify-center overflow-auto bg-slate-950 p-4">
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[1.5fr_360px]">
+          <div className="relative flex max-h-[76vh] min-h-[280px] items-center justify-center overflow-auto bg-slate-950 p-4">
           {hasNavigation && (
             <>
               <button
@@ -221,8 +247,53 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation }
               </a>
             </div>
           )}
+          </div>
+
+          <form onSubmit={save} className="flex max-h-[76vh] flex-col overflow-y-auto border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:border-l lg:border-t-0">
+            <div className="space-y-4 p-5">
+              <div>
+                <h3 className="font-semibold text-slate-900 dark:text-white">Image details</h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Update the image name, alt text, and review file stats.</p>
+              </div>
+
+              <Input label="Image name" value={form.original_name} onChange={(event) => setForm({ ...form, original_name: event.target.value })} />
+              <Input label="Alt tag" value={form.alt_text} onChange={(event) => setForm({ ...form, alt_text: event.target.value })} placeholder="Describe this image for accessibility" />
+
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Image stats</p>
+                <div className="mt-3 grid gap-3 text-sm">
+                  <Stat label="Type" value={asset.type} />
+                  <Stat label="Dimensions" value={asset.width && asset.height ? `${asset.width} x ${asset.height}px` : 'Not available'} />
+                  <Stat label="Size" value={formatSize(asset.size)} />
+                  <Stat label="MIME" value={asset.mime_type || 'Unknown'} />
+                  <Stat label="Uploaded" value={asset.created_at ? new Date(asset.created_at).toLocaleString() : 'Unknown'} />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-200 p-5 dark:border-slate-800">
+              <Link to={`/app/media/${asset.id}/edit`}>
+                <Button type="button" variant="secondary">Edit page</Button>
+              </Link>
+              <Button type="submit" loading={saving}>Save details</Button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
   )
+}
+
+function Stat({ label, value }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="truncate text-right font-medium text-slate-800 dark:text-slate-100">{value}</span>
+    </div>
+  )
+}
+
+function formatSize(size = 0) {
+  if (size >= 1048576) return `${(size / 1048576).toFixed(2)} MB`
+  return `${(size / 1024).toFixed(0)} KB`
 }

@@ -5,17 +5,19 @@ import clsx from 'clsx'
 import api from '../lib/api'
 import { Card, StatCard, PageLoader, EmptyState, Badge, Button } from '../components/ui'
 import PlatformBadge from '../components/PlatformBadge'
+import DateTimeField from '../components/DateTimeField'
 
 const RANGES = [
   ['today', 'Today'],
   ['month', 'Monthly'],
-  ['custom', 'Custom range'],
+  ['custom', 'Custom'],
 ]
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [range, setRange] = useState('month')
   const [custom, setCustom] = useState({ from: '', to: '' })
+  const [customOpen, setCustomOpen] = useState(false)
 
   useEffect(() => {
     setData(null)
@@ -43,13 +45,16 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-slate-500">Here's what's happening across your channels.</p>
         </div>
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {RANGES.map(([key, label]) => (
               <button
                 key={key}
                 type="button"
-                onClick={() => setRange(key)}
+                onClick={() => {
+                  setRange(key)
+                  setCustomOpen(key === 'custom' ? (value) => !value : false)
+                }}
                 className={clsx(
                   'whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition',
                   range === key ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white',
@@ -59,14 +64,16 @@ export default function Dashboard() {
               </button>
             ))}
           </div>
-          {range === 'custom' && (
-            <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center">
-              <span className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                <CalendarDays className="h-4 w-4 text-brand-500" /> Custom
-              </span>
-              <input type="date" value={custom.from} onChange={(event) => setCustom({ ...custom, from: event.target.value })} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
-              <span className="hidden text-xs text-slate-400 sm:inline">to</span>
-              <input type="date" value={custom.to} onChange={(event) => setCustom({ ...custom, to: event.target.value })} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+          {range === 'custom' && customOpen && (
+            <div className="absolute right-0 top-full z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-800 dark:bg-slate-900">
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <CalendarDays className="h-4 w-4 text-brand-500" /> Choose custom dates
+              </div>
+              <div className="grid gap-3">
+                <DateTimeField label="From" type="date" value={custom.from} onChange={(event) => setCustom({ ...custom, from: event.target.value })} />
+                <DateTimeField label="To" type="date" value={custom.to} onChange={(event) => setCustom({ ...custom, to: event.target.value })} />
+                <Button type="button" size="sm" onClick={() => setCustomOpen(false)}>Apply dates</Button>
+              </div>
             </div>
           )}
         </div>

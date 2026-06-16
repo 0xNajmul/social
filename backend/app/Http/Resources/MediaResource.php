@@ -25,6 +25,8 @@ class MediaResource extends JsonResource
             'duration' => $this->duration,
             'folder_id' => $this->folder_id,
             'tags' => $this->tags ?? [],
+            'alt_text' => data_get($this->meta, 'alt_text'),
+            'meta' => $this->meta ?? [],
             'created_at' => $this->created_at,
         ];
     }

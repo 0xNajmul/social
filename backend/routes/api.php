@@ -93,6 +93,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('posts', PostController::class);
         Route::get('planner-notes', [PlannerNoteController::class, 'index']);
         Route::post('planner-notes', [PlannerNoteController::class, 'store']);
+        Route::put('planner-notes/{plannerNote}', [PlannerNoteController::class, 'update']);
+        Route::delete('planner-notes/{plannerNote}', [PlannerNoteController::class, 'destroy']);
         Route::post('posts/{post}/schedule', [PostController::class, 'schedule']);
         Route::post('posts/{post}/publish', [PostController::class, 'publishNow']);
         Route::post('posts/{post}/cancel', [PostController::class, 'cancel']);
@@ -108,6 +110,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Media library
         Route::get('media', [MediaController::class, 'index']);
         Route::post('media', [MediaController::class, 'store']);
+        Route::get('media/{media}', [MediaController::class, 'show']);
         Route::put('media/{media}', [MediaController::class, 'update']);
         Route::delete('media/{media}', [MediaController::class, 'destroy']);
         Route::apiResource('media-folders', MediaFolderController::class)->only(['index', 'store', 'update', 'destroy']);
@@ -154,6 +157,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('plans', AdminPlanController::class)->except(['show']);
 
         Route::get('posts', [AdminPostController::class, 'index']);
+        Route::get('posts/{post}', [AdminPostController::class, 'show']);
+        Route::put('posts/{post}', [AdminPostController::class, 'update']);
+        Route::delete('posts/{post}', [AdminPostController::class, 'destroy']);
 
         Route::get('workspaces', [AdminWorkspaceController::class, 'index']);
         Route::post('workspaces', [AdminWorkspaceController::class, 'store']);

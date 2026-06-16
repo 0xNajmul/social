@@ -62,6 +62,9 @@ const badgeColors = {
   rose: 'bg-rose-900/40 text-rose-300',
   slate: 'bg-slate-800 text-slate-300',
   indigo: 'bg-indigo-900/40 text-indigo-300',
+  sky: 'bg-sky-900/40 text-sky-300',
+  violet: 'bg-violet-900/40 text-violet-300',
+  gray: 'bg-gray-800 text-gray-300',
 }
 export function Badge({ color = 'slate', children }) {
   return <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium', badgeColors[color])}>{children}</span>
