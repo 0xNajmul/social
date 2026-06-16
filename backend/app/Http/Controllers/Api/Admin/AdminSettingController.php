@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PlatformSetting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class AdminSettingController extends Controller
 {
@@ -45,6 +46,19 @@ class AdminSettingController extends Controller
             'message' => 'Platform settings updated.',
             'data' => $this->values(),
         ]);
+    }
+
+    public function uploadLogo(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'logo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp,svg', 'max:4096'],
+        ]);
+
+        $path = $data['logo']->store('settings', 'public');
+
+        return response()->json([
+            'url' => Storage::url($path),
+        ], 201);
     }
 
     /** @return array<string, mixed> */
@@ -146,7 +160,9 @@ class AdminSettingController extends Controller
             ]),
             'affiliate' => $this->settingArray('affiliate', [
                 'enabled' => false,
+                'commission_type' => 'percentage',
                 'commission_percent' => '20',
+                'commission_flat_amount' => '10',
                 'cookie_days' => '30',
                 'payout_threshold' => '50',
             ]),

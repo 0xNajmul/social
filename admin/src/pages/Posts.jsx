@@ -107,8 +107,13 @@ export default function Posts() {
               value={filters.search}
               onChange={(event) => setFilters({ ...filters, search: event.target.value })}
               placeholder="Search posts..."
-              className="pl-9"
+              className="pl-9 pr-9"
             />
+            {filters.search && (
+              <button type="button" onClick={() => setFilters({ ...filters, search: '' })} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-500 hover:bg-slate-700 hover:text-white" aria-label="Clear post search">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           <Button type="submit" size="sm" variant="secondary">Search</Button>
           <Button type="button" size="sm" onClick={() => setFilterOpen(true)}>

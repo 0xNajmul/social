@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, BarChart3, Bot, CheckCircle2, ChevronRight, Clock3, Code2, CreditCard,
-  FileText, Globe2, GripVertical, Languages, Link2, LockKeyhole, Mail,
-  Menu, Palette, Plus, Save, Search, Settings2, ShieldCheck, Trash2, Users,
+  ArrowLeft, BarChart3, Bot, CheckCircle2, ChevronDown, ChevronRight, Clock3, Code2, CreditCard,
+  ExternalLink, FileText, Globe2, GripVertical, Image as ImageIcon, Languages, Link2, LockKeyhole, Mail,
+  Menu, Palette, Plus, Save, Search, Settings2, ShieldCheck, Trash2, Upload, Users,
 } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
@@ -114,7 +114,9 @@ const DEFAULTS = {
   },
   affiliate: {
     enabled: false,
+    commission_type: 'percentage',
     commission_percent: '20',
+    commission_flat_amount: '10',
     cookie_days: '30',
     payout_threshold: '50',
   },
@@ -158,7 +160,6 @@ const SETTINGS = [
       { section: 'general', key: 'description', label: 'Description', type: 'textarea', span: true },
       { section: 'general', key: 'email', label: 'Public email', type: 'email' },
       { section: 'general', key: 'phone', label: 'Phone' },
-      { section: 'general', key: 'logo_url', label: 'Logo URL', type: 'url', span: true },
       { section: 'general', key: 'facebook_url', label: 'Facebook URL', type: 'url' },
       { section: 'general', key: 'x_url', label: 'X URL', type: 'url' },
       { section: 'general', key: 'tiktok_url', label: 'TikTok URL', type: 'url' },
@@ -307,7 +308,9 @@ const SETTINGS = [
     tags: ['affiliate', 'referral', 'commission'],
     fields: [
       { section: 'affiliate', key: 'enabled', label: 'Enable affiliate program', type: 'checkbox', span: true },
+      { section: 'affiliate', key: 'commission_type', label: 'Commission type', type: 'select', options: [['percentage', 'Percentage'], ['flat', 'Flat amount']] },
       { section: 'affiliate', key: 'commission_percent', label: 'Commission percent', type: 'number' },
+      { section: 'affiliate', key: 'commission_flat_amount', label: 'Flat commission amount', type: 'number' },
       { section: 'affiliate', key: 'cookie_days', label: 'Referral cookie days', type: 'number' },
       { section: 'affiliate', key: 'payout_threshold', label: 'Payout threshold', type: 'number' },
     ],
@@ -508,10 +511,10 @@ export default function Settings() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-white"><Settings2 className="h-7 w-7 text-brand-300" /> Settings</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+          <h1 className="text-2xl font-bold text-white">Settings</h1>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
             Search settings, switch categories, and configure frontend, integrations, security, system jobs and advanced crawler controls.
           </p>
         </div>
@@ -520,7 +523,6 @@ export default function Settings() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             <Input className="pl-9" placeholder="Search settings..." value={search} onChange={(event) => setSearch(event.target.value)} />
           </div>
-          <Button onClick={save} loading={saving}><Save className="h-4 w-4" /> Save all</Button>
         </div>
       </div>
 
@@ -598,6 +600,33 @@ function SettingDetail({ setting, form, updateField, updateSection, setMessage }
     return <FooterEditor footer={form.footer} onChange={(footer) => updateSection('footer', footer)} />
   }
 
+  const imageFields = {
+    general: [{ section: 'general', key: 'logo_url', label: 'Site logo', help: 'Shown on the landing page, user panel, and admin panel.' }],
+    seo: [
+      { section: 'seo', key: 'og_image_url', label: 'Open Graph image', help: 'Used when sharing pages on Facebook and other Open Graph surfaces.' },
+      { section: 'seo', key: 'twitter_image_url', label: 'Twitter/X image', help: 'Used for Twitter/X cards.' },
+    ],
+  }[setting.id] || []
+  const sideKeys = new Set(imageFields.map((field) => `${field.section}.${field.key}`))
+  const visibleFields = (setting.fields || []).filter((field) => !sideKeys.has(`${field.section}.${field.key}`))
+
+  if (imageFields.length > 0) {
+    return (
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+        <div className="grid gap-4 sm:grid-cols-2">
+          {visibleFields.map((field) => (
+            <FieldInput key={`${field.section || 'root'}-${field.key}`} field={field} form={form} onChange={updateField} />
+          ))}
+        </div>
+        <div className="space-y-4">
+          {imageFields.map((field) => (
+            <ImageUploadPanel key={`${field.section}-${field.key}`} field={field} form={form} onChange={updateField} setMessage={setMessage} />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5 p-5">
       {setting.id === 'sitemap' && (
@@ -607,16 +636,20 @@ function SettingDetail({ setting, form, updateField, updateSection, setMessage }
             <div>
               <p className="font-semibold text-white">Sitemap generator</p>
               <p className="mt-1 text-sm text-slate-400">Use this action to record a sitemap generation request. The backend generator can consume these settings.</p>
-              <Button
-                size="sm"
-                className="mt-3"
-                onClick={() => {
-                  updateField({ section: 'sitemap', key: 'last_generated_at' }, new Date().toISOString())
-                  setMessage({ type: 'success', text: 'Sitemap generation marked. Save settings to persist the timestamp.' })
-                }}
-              >
-                Generate sitemap
-              </Button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    updateField({ section: 'sitemap', key: 'last_generated_at' }, new Date().toISOString())
+                    setMessage({ type: 'success', text: 'Sitemap generation marked. Save settings to persist the timestamp.' })
+                  }}
+                >
+                  Generate sitemap
+                </Button>
+                <a href="/sitemap.xml" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800">
+                  <ExternalLink className="h-4 w-4" /> Open sitemap
+                </a>
+              </div>
               {form.sitemap.last_generated_at && <p className="mt-2 text-xs text-slate-500">Last generated: {new Date(form.sitemap.last_generated_at).toLocaleString()}</p>}
             </div>
           </div>
@@ -624,7 +657,7 @@ function SettingDetail({ setting, form, updateField, updateSection, setMessage }
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {(setting.fields || []).map((field) => (
+        {visibleFields.map((field) => (
           <FieldInput key={`${field.section || 'root'}-${field.key}`} field={field} form={form} onChange={updateField} />
         ))}
       </div>
@@ -695,8 +728,62 @@ function FieldInput({ field, form, onChange }) {
   )
 }
 
+function ImageUploadPanel({ field, form, onChange, setMessage }) {
+  const [uploading, setUploading] = useState(false)
+  const value = field.section ? form[field.section]?.[field.key] : form[field.key]
+
+  const upload = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const payload = new FormData()
+      payload.append('logo', file)
+      const { data } = await api.post('/admin/settings/logo', payload, { headers: { 'Content-Type': 'multipart/form-data' } })
+      onChange(field, data.url)
+      setMessage({ type: 'success', text: `${field.label} uploaded. Save settings to publish it.` })
+    } catch (error) {
+      setMessage({ type: 'error', text: error.response?.data?.message || `Could not upload ${field.label.toLowerCase()}.` })
+    } finally {
+      setUploading(false)
+      event.target.value = ''
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600/20 text-brand-300">
+          <ImageIcon className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="font-semibold text-white">{field.label}</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-400">{field.help}</p>
+        </div>
+      </div>
+      <div className="mt-4 overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+        {value ? (
+          <img src={value} alt="" className="h-40 w-full object-contain p-3" />
+        ) : (
+          <div className="flex h-40 items-center justify-center text-slate-600">
+            <ImageIcon className="h-10 w-10" />
+          </div>
+        )}
+      </div>
+      <label className="mt-4 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">
+        <Upload className="h-4 w-4" />
+        {uploading ? 'Uploading...' : 'Upload image'}
+        <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" onChange={upload} disabled={uploading} />
+      </label>
+      <Input label="Image URL" value={value || ''} onChange={(event) => onChange(field, event.target.value)} className="mt-3" />
+    </div>
+  )
+}
+
 function MenuEditor({ items, onChange }) {
   const [draggedId, setDraggedId] = useState(null)
+  const [dropTarget, setDropTarget] = useState(null)
+  const [openIds, setOpenIds] = useState(() => items.map((item) => item.id))
 
   const updateItem = (id, changes) => {
     onChange(items.map((item) => (item.id === id ? { ...item, ...changes } : item)))
@@ -722,7 +809,14 @@ function MenuEditor({ items, onChange }) {
     next.splice(toIndex, 0, moved)
     onChange(next)
     setDraggedId(null)
+    setDropTarget(null)
   }
+
+  const toggleOpen = (id) => {
+    setOpenIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  }
+
+  const orderedItems = flattenMenuItems(items)
 
   return (
     <div className="space-y-4 p-5">
@@ -732,37 +826,76 @@ function MenuEditor({ items, onChange }) {
       </div>
 
       <div className="space-y-3">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            draggable
-            onDragStart={() => setDraggedId(item.id)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => dropItem(item.id)}
-            className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"
-          >
-            <div className="grid gap-3 sm:grid-cols-[24px_1fr_1fr]">
-              <button type="button" className="mt-2 cursor-grab text-slate-500"><GripVertical className="h-4 w-4" /></button>
-              <Input label="Label" value={item.label} onChange={(event) => updateItem(item.id, { label: event.target.value })} />
-              <Input label="URL" value={item.url} onChange={(event) => updateItem(item.id, { url: event.target.value })} />
+        {orderedItems.map(({ item, depth }) => {
+          const open = openIds.includes(item.id)
+          return (
+            <div key={item.id}>
+              <div className={clsx('h-1 rounded-full bg-brand-500 transition', dropTarget === item.id ? 'opacity-100' : 'opacity-0')} />
+              <div
+                draggable
+                onDragStart={() => setDraggedId(item.id)}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  setDropTarget(item.id)
+                }}
+                onDragLeave={() => setDropTarget(null)}
+                onDrop={() => dropItem(item.id)}
+                className="rounded-xl border border-slate-800 bg-slate-950/40"
+                style={{ marginLeft: `${depth * 24}px` }}
+              >
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <button type="button" className="cursor-grab text-slate-500"><GripVertical className="h-4 w-4" /></button>
+                  <button type="button" onClick={() => toggleOpen(item.id)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-800">
+                    <ChevronDown className={clsx('h-4 w-4 transition', !open && '-rotate-90')} />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-white">{item.label}</p>
+                    <p className="truncate text-xs text-slate-500">{item.url || '#'} · {item.type || 'link'}{item.parent ? ' · nested' : ''}</p>
+                  </div>
+                  <Button type="button" size="sm" variant="ghost" className="text-rose-400" onClick={() => removeItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+                {open && (
+                  <div className="grid gap-3 border-t border-slate-800 p-3 sm:grid-cols-2">
+                    <Input label="Label" value={item.label} onChange={(event) => updateItem(item.id, { label: event.target.value })} />
+                    <Input label="URL" value={item.url} onChange={(event) => updateItem(item.id, { url: event.target.value })} />
+                    <Select label="Menu type" value={item.type} onChange={(value) => updateItem(item.id, { type: value })} options={[['link', 'Link'], ['dropdown', 'Dropdown'], ['mega', 'Mega menu']]} />
+                    <Select
+                      label="Parent item"
+                      value={item.parent || ''}
+                      onChange={(value) => updateItem(item.id, { parent: value })}
+                      options={[['', 'Top level'], ...items.filter((option) => option.id !== item.id).map((option) => [option.id, option.label])]}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-              <Select label="Menu type" value={item.type} onChange={(value) => updateItem(item.id, { type: value })} options={[['link', 'Link'], ['dropdown', 'Dropdown'], ['mega', 'Mega menu']]} />
-              <Select
-                label="Parent item"
-                value={item.parent || ''}
-                onChange={(value) => updateItem(item.id, { parent: value })}
-                options={[['', 'Top level'], ...items.filter((option) => option.id !== item.id).map((option) => [option.id, option.label])]}
-              />
-              <Button type="button" variant="ghost" className="self-end text-rose-400" onClick={() => removeItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <Button type="button" variant="secondary" onClick={addItem}><Plus className="h-4 w-4" /> Add menu item</Button>
     </div>
   )
+}
+
+function flattenMenuItems(items) {
+  const childrenByParent = items.reduce((map, item) => {
+    const parent = item.parent || ''
+    map[parent] = [...(map[parent] || []), item]
+    return map
+  }, {})
+  const rows = []
+  const visit = (parent = '', depth = 0) => {
+    ;(childrenByParent[parent] || []).forEach((item) => {
+      rows.push({ item, depth })
+      visit(item.id, depth + 1)
+    })
+  }
+  visit()
+
+  const known = new Set(rows.map(({ item }) => item.id))
+  items.filter((item) => !known.has(item.id)).forEach((item) => rows.push({ item, depth: 0 }))
+  return rows
 }
 
 function FooterEditor({ footer, onChange }) {

@@ -1,11 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Building2, Save } from 'lucide-react'
+import { ArrowLeft, Bell, Building2, CalendarClock, Globe2, Save, ShieldCheck } from 'lucide-react'
 import api from '../lib/api'
 import { workspaceStore } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Input, PageLoader } from '../components/ui'
 import { timezones } from '../lib/timezones'
+
+const DEFAULT_WORKSPACE_SETTINGS = {
+  language: 'en',
+  week_starts_on: 'monday',
+  default_post_time: '09:00',
+  approval_required: false,
+  email_notifications: true,
+  publishing_alerts: true,
+  weekly_summary: true,
+  content_width: 'contained',
+  popup_default_stage: '0',
+}
 
 export default function WorkspaceEdit() {
   const { id } = useParams()
@@ -22,7 +34,7 @@ export default function WorkspaceEdit() {
       name: workspace.name || '',
       timezone: workspace.timezone || 'UTC',
       brand_color: workspace.brand_color || '#6366f1',
-      settings: workspace.settings || {},
+      settings: { ...DEFAULT_WORKSPACE_SETTINGS, ...(workspace.settings || {}) },
     })
   }, [workspace])
 
@@ -30,6 +42,10 @@ export default function WorkspaceEdit() {
 
   const active = workspace.slug === activeWorkspace?.slug
   const canUpdate = ['owner', 'admin'].includes(workspace.role)
+
+  const updateSetting = (key, value) => {
+    setForm((current) => ({ ...current, settings: { ...current.settings, [key]: value } }))
+  }
 
   const save = async (event) => {
     event.preventDefault()
@@ -92,6 +108,70 @@ export default function WorkspaceEdit() {
               </div>
             </label>
           </div>
+
+          <WorkspaceSection
+            icon={CalendarClock}
+            title="Publishing defaults"
+            description="Set the defaults your team sees when planning new posts and campaigns."
+          >
+            <SelectField label="Workspace language" value={form.settings.language} onChange={(value) => updateSetting('language', value)} disabled={!canUpdate}>
+              <option value="en">English</option>
+              <option value="bn">Bengali</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="ar">Arabic</option>
+            </SelectField>
+            <SelectField label="Week starts on" value={form.settings.week_starts_on} onChange={(value) => updateSetting('week_starts_on', value)} disabled={!canUpdate}>
+              <option value="monday">Monday</option>
+              <option value="sunday">Sunday</option>
+              <option value="saturday">Saturday</option>
+            </SelectField>
+            <Input label="Default post time" type="time" value={form.settings.default_post_time || '09:00'} onChange={(event) => updateSetting('default_post_time', event.target.value)} disabled={!canUpdate} />
+            <SwitchField
+              label="Require approval before publishing"
+              description="New posts will enter approval flow before they can be published."
+              checked={Boolean(form.settings.approval_required)}
+              onChange={(checked) => updateSetting('approval_required', checked)}
+              disabled={!canUpdate}
+            />
+          </WorkspaceSection>
+
+          <WorkspaceSection
+            icon={Bell}
+            title="Notifications"
+            description="Control workspace-level alerts for publishing and weekly summaries."
+          >
+            <SwitchField label="Email notifications" description="Send important workspace events by email." checked={Boolean(form.settings.email_notifications)} onChange={(checked) => updateSetting('email_notifications', checked)} disabled={!canUpdate} />
+            <SwitchField label="Publishing alerts" description="Notify the team when posts publish or fail." checked={Boolean(form.settings.publishing_alerts)} onChange={(checked) => updateSetting('publishing_alerts', checked)} disabled={!canUpdate} />
+            <SwitchField label="Weekly summary" description="Send a weekly digest of post performance and workspace usage." checked={Boolean(form.settings.weekly_summary)} onChange={(checked) => updateSetting('weekly_summary', checked)} disabled={!canUpdate} />
+          </WorkspaceSection>
+
+          <WorkspaceSection
+            icon={ShieldCheck}
+            title="Workspace experience"
+            description="Fine tune how this workspace opens tools and page content."
+          >
+            <SelectField label="User panel width" value={form.settings.content_width} onChange={(value) => updateSetting('content_width', value)} disabled={!canUpdate}>
+              <option value="contained">Contained width</option>
+              <option value="full">Full width</option>
+            </SelectField>
+            <SelectField label="Default popup size" value={String(form.settings.popup_default_stage ?? '0')} onChange={(value) => updateSetting('popup_default_stage', value)} disabled={!canUpdate}>
+              <option value="0">Small popup</option>
+              <option value="1">Content screen</option>
+              <option value="2">Full screen</option>
+            </SelectField>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40 sm:col-span-2">
+              <div className="flex items-start gap-3">
+                <Globe2 className="mt-0.5 h-5 w-5 text-brand-500" />
+                <div>
+                  <p className="font-semibold text-slate-900 dark:text-white">Workspace ID and slug</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use <span className="font-mono">#{workspace.id}</span> and <span className="font-mono">{workspace.slug}</span> when configuring integrations or support requests.</p>
+                </div>
+              </div>
+            </div>
+          </WorkspaceSection>
+
           <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4 dark:border-slate-800">
             <Button type="button" variant="ghost" onClick={() => navigate('/app/workspaces')}>Cancel</Button>
             <Button type="submit" loading={busy} disabled={!canUpdate}><Save className="h-4 w-4" /> Save workspace</Button>
@@ -99,6 +179,52 @@ export default function WorkspaceEdit() {
         </Card>
       </form>
     </div>
+  )
+}
+
+function WorkspaceSection({ icon: Icon, title, description, children }) {
+  return (
+    <section className="border-t border-slate-100 px-6 py-5 dark:border-slate-800">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <Icon className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="font-semibold text-slate-900 dark:text-white">{title}</h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
+        </div>
+      </div>
+      <div className="grid gap-5 sm:grid-cols-2">{children}</div>
+    </section>
+  )
+}
+
+function SelectField({ label, value, onChange, disabled, children }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+        {children}
+      </select>
+    </label>
+  )
+}
+
+function SwitchField({ label, description, checked, onChange, disabled }) {
+  return (
+    <label className="flex min-h-[4.5rem] items-center justify-between gap-4 rounded-2xl border border-slate-200 px-4 py-3 dark:border-slate-800">
+      <span>
+        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{label}</span>
+        <span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</span>
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        disabled={disabled}
+        className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:opacity-60"
+      />
+    </label>
   )
 }
 

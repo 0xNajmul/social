@@ -44,7 +44,7 @@ export function Modal({ open, title, description, onClose, children, size = 'lg'
   if (!open) return null
   const widths = { md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className={clsx('max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl', widths[size])} role="dialog" aria-modal="true">
         <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-800 bg-slate-900 px-5 py-4">
           <div><h2 className="text-lg font-bold text-white">{title}</h2>{description && <p className="mt-1 text-sm text-slate-400">{description}</p>}</div>

@@ -126,9 +126,14 @@ export default function Profile() {
         </Card>
 
         <Card className="space-y-5 p-6">
-          <div>
-            <h2 className="font-semibold text-slate-900 dark:text-white">Personal information</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">These details are used across your workspace.</p>
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+              <UserRound className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-semibold text-slate-900 dark:text-white">Personal information</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">These details are used across your workspace.</p>
+            </div>
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2">

@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\AdminDashboardController;
 use App\Http\Controllers\Api\Admin\AdminJobController;
 use App\Http\Controllers\Api\Admin\AdminPlanController;
 use App\Http\Controllers\Api\Admin\AdminPostController;
+use App\Http\Controllers\Api\Admin\AdminRoleController;
 use App\Http\Controllers\Api\Admin\AdminSettingController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminWorkspaceController;
@@ -21,6 +22,7 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OAuthController;
 use App\Http\Controllers\Api\PlannerNoteController;
 use App\Http\Controllers\Api\PostController;
+use App\Http\Controllers\Api\PublicSettingController;
 use App\Http\Controllers\Api\SocialAccountController;
 use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\WorkspaceController;
@@ -36,6 +38,7 @@ Route::post('login', [AuthController::class, 'login']);
 Route::get('auth/google/redirect', [AuthController::class, 'googleRedirect']);
 Route::get('auth/google/callback', [AuthController::class, 'googleCallback']);
 Route::get('plans', [BillingController::class, 'plans']); // public pricing page
+Route::get('public/settings', [PublicSettingController::class, 'index']);
 Route::get('oauth/{provider}/callback', [OAuthController::class, 'callback']);
 
 /*
@@ -95,6 +98,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('planner-notes', [PlannerNoteController::class, 'store']);
         Route::put('planner-notes/{plannerNote}', [PlannerNoteController::class, 'update']);
         Route::delete('planner-notes/{plannerNote}', [PlannerNoteController::class, 'destroy']);
+        Route::put('posts/{post}/status', [PostController::class, 'updateStatus']);
         Route::post('posts/{post}/schedule', [PostController::class, 'schedule']);
         Route::post('posts/{post}/publish', [PostController::class, 'publishNow']);
         Route::post('posts/{post}/cancel', [PostController::class, 'cancel']);
@@ -154,6 +158,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('users/{user}/impersonate', [AdminUserController::class, 'impersonationToken']);
         Route::delete('users/{user}', [AdminUserController::class, 'destroy']);
 
+        Route::apiResource('roles', AdminRoleController::class)->except(['show']);
+
         Route::apiResource('plans', AdminPlanController::class)->except(['show']);
 
         Route::get('posts', [AdminPostController::class, 'index']);
@@ -169,6 +175,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::get('settings', [AdminSettingController::class, 'index']);
         Route::put('settings', [AdminSettingController::class, 'update']);
+        Route::post('settings/logo', [AdminSettingController::class, 'uploadLogo']);
 
         Route::get('jobs/scheduled', [AdminJobController::class, 'scheduled']);
         Route::get('jobs/failed-posts', [AdminJobController::class, 'failedPosts']);

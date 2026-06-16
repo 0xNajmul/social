@@ -8,21 +8,26 @@ import {
   CircleDashed,
   Clock3,
   Columns3,
+  Edit3,
+  Info,
   FileText,
   ListFilter,
+  Plus,
   Search,
-  Settings2,
+  Save,
   Table2,
   Timeline,
+  Trash2,
   UserRound,
   X,
 } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
 import PlatformBadge from '../components/PlatformBadge'
-import { Badge, Button, Card, EmptyState, Modal, PageLoader } from '../components/ui'
+import { Badge, Button, Card, EmptyState, Modal, PageLoader, ConfirmDialog } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import Calendar from './Calendar'
+import DateTimeField from '../components/DateTimeField'
 
 const GROUPS = {
   pending: {
@@ -34,7 +39,7 @@ const GROUPS = {
     panel: 'border-amber-200 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20',
   },
   progress: {
-    label: 'Progress',
+    label: 'Processing',
     statuses: ['approved', 'scheduled', 'publishing'],
     color: 'indigo',
     icon: Clock3,
@@ -65,13 +70,28 @@ const VIEWS = [
 const VALID_VIEWS = VIEWS.map((view) => view.key)
 const VALID_FILTERS = DRAWER_FILTERS.map((filter) => filter.key)
 const DEFAULT_VISIBLE_VIEWS = [...VALID_VIEWS]
+const STATUS_OPTIONS = [
+  ['draft', 'Draft'],
+  ['pending_approval', 'Pending approval'],
+  ['approved', 'Approved'],
+  ['scheduled', 'Scheduled'],
+  ['published', 'Published'],
+  ['failed', 'Failed'],
+  ['cancelled', 'Cancelled'],
+]
+const GROUP_STATUS = { pending: 'draft', progress: 'approved', completed: 'published' }
 
 export default function Organizer() {
   const { activeWorkspace } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [posts, setPosts] = useState(null)
   const [plannerNotes, setPlannerNotes] = useState([])
+  const [accounts, setAccounts] = useState([])
   const [filter, setFilter] = useState(() => validParam(searchParams.get('filter'), VALID_FILTERS, 'all'))
+  const [selectedGroups, setSelectedGroups] = useState(() => {
+    const fromUrl = validParam(searchParams.get('filter'), VALID_FILTERS, 'all')
+    return fromUrl === 'all' || fromUrl === 'custom' ? ['all'] : [fromUrl]
+  })
   const [view, setView] = useState(() => {
     const fromUrl = validParam(searchParams.get('view'), VALID_VIEWS, null)
     const saved = validParam(localStorage.getItem('organizer_view'), VALID_VIEWS, 'table')
@@ -83,8 +103,13 @@ export default function Organizer() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
   const [search, setSearch] = useState('')
+  const [sortOrder, setSortOrder] = useState(() => localStorage.getItem('organizer_sort_order') || 'desc')
+  const [approvalFilter, setApprovalFilter] = useState('both')
+  const [selectedAccountIds, setSelectedAccountIds] = useState([])
+  const [selectedCategories, setSelectedCategories] = useState([])
   const [error, setError] = useState('')
   const [reviewBusy, setReviewBusy] = useState('')
+  const [dragBusy, setDragBusy] = useState('')
 
   const syncOrganizerUrl = (nextView, nextFilter) => {
     const params = new URLSearchParams(searchParams)
@@ -103,7 +128,20 @@ export default function Organizer() {
   const changeFilter = (nextFilter) => {
     if (!VALID_FILTERS.includes(nextFilter)) return
     setFilter(nextFilter)
+    setSelectedGroups(nextFilter === 'all' || nextFilter === 'custom' ? ['all'] : [nextFilter])
     syncOrganizerUrl(view, nextFilter)
+  }
+
+  const changeGroups = (nextGroups) => {
+    const normalized = nextGroups.length === 0 || nextGroups.includes('all') ? ['all'] : nextGroups.filter((key) => Object.keys(GROUPS).includes(key))
+    setSelectedGroups(normalized)
+    const nextFilter = normalized.length === 1 ? normalized[0] : 'custom'
+    setFilter(nextFilter)
+    syncOrganizerUrl(view, nextFilter)
+  }
+
+  const toggleAccountFilter = (id) => {
+    setSelectedAccountIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   }
 
   const toggleVisibleView = (viewKey) => {
@@ -121,7 +159,8 @@ export default function Organizer() {
     Promise.allSettled([
       api.get('/posts', { params: { per_page: 100 } }),
       api.get('/planner-notes', { params: { limit: 100 } }),
-    ]).then(([postsResult, notesResult]) => {
+      api.get('/social/accounts'),
+    ]).then(([postsResult, notesResult, accountsResult]) => {
       if (!active) return
 
       if (postsResult.status === 'fulfilled') {
@@ -136,6 +175,12 @@ export default function Organizer() {
       } else {
         setPlannerNotes([])
       }
+
+      if (accountsResult.status === 'fulfilled') {
+        setAccounts(accountsResult.value.data.data || [])
+      } else {
+        setAccounts([])
+      }
     })
     return () => { active = false }
   }, [])
@@ -145,7 +190,10 @@ export default function Organizer() {
     const nextFilter = validParam(searchParams.get('filter'), VALID_FILTERS, null)
 
     if (nextView && nextView !== view && visibleViews.includes(nextView)) setView(nextView)
-    if (nextFilter && nextFilter !== filter) setFilter(nextFilter)
+    if (nextFilter && nextFilter !== filter) {
+      setFilter(nextFilter)
+      if (nextFilter !== 'custom') setSelectedGroups(nextFilter === 'all' ? ['all'] : [nextFilter])
+    }
   }, [filter, searchParams, view, visibleViews])
 
   useEffect(() => {
@@ -179,6 +227,10 @@ export default function Organizer() {
     localStorage.setItem('organizer_show_social_data', String(showSocialData))
   }, [showSocialData])
 
+  useEffect(() => {
+    localStorage.setItem('organizer_sort_order', sortOrder)
+  }, [sortOrder])
+
   const organizerItems = useMemo(() => {
     const socialItems = (posts || []).map((post) => ({ ...post, kind: 'post' }))
     const planItems = plannerNotes.map(noteToOrganizerItem)
@@ -194,13 +246,22 @@ export default function Organizer() {
     ...Object.fromEntries(Object.keys(GROUPS).map((key) => [key, organizerItems.filter((item) => groupFor(item) === key).length])),
   }), [organizerItems])
 
+  const availableCategories = useMemo(() => {
+    const categories = new Set()
+    organizerItems.forEach((item) => getItemCategories(item).forEach((category) => categories.add(category)))
+    return [...categories].sort((a, b) => a.localeCompare(b))
+  }, [organizerItems])
+
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase()
     return organizerItems
-      .filter((item) => filter === 'all' || filter === 'custom' || groupFor(item) === filter)
+      .filter((item) => selectedGroups.includes('all') || selectedGroups.includes(groupFor(item)))
+      .filter((item) => approvalMatches(item, approvalFilter))
+      .filter((item) => accountMatches(item, selectedAccountIds))
+      .filter((item) => categoryMatches(item, selectedCategories))
       .filter((item) => !query || `${item.title || ''} ${item.content || ''} ${item.author?.name || ''} ${item.status_label || ''}`.toLowerCase().includes(query))
-      .sort(compareItems)
-  }, [filter, organizerItems, search])
+      .sort((a, b) => compareItems(a, b, sortOrder))
+  }, [approvalFilter, organizerItems, search, selectedAccountIds, selectedCategories, selectedGroups, sortOrder])
 
   const reviewPost = async (post, decision) => {
     if (post.kind === 'planner') return
@@ -218,6 +279,57 @@ export default function Organizer() {
     }
   }
 
+  const upsertPost = (updated) => {
+    setPosts((current) => (current || []).map((post) => post.id === updated.id ? updated : post))
+  }
+
+  const upsertPlanner = (updated) => {
+    setPlannerNotes((current) => (current || []).map((note) => note.id === updated.id ? updated : note))
+  }
+
+  const removeItem = (item) => {
+    if (item.kind === 'planner') {
+      setPlannerNotes((current) => (current || []).filter((note) => note.id !== item.id))
+    } else {
+      setPosts((current) => (current || []).filter((post) => post.id !== item.id))
+    }
+  }
+
+  const updateItemFromModal = (item) => {
+    if (item.kind === 'planner') upsertPlanner(item.note || item)
+    else upsertPost(item)
+    setSelectedItem(item)
+  }
+
+  const moveItemStage = async (item, groupKey) => {
+    if (!item || groupFor(item) === groupKey || !GROUP_STATUS[groupKey]) return
+    setDragBusy(`${item.kind}-${item.id}`)
+    try {
+      if (item.kind === 'planner') {
+        const { data } = await api.put(`/planner-notes/${item.id}`, {
+          title: item.note?.title || item.title || 'Untitled plan',
+          content_html: item.note?.content_html || `<p>${escapeHtml(item.content || '')}</p>`,
+          ai_prompt: item.note?.meta?.ai_prompt || '',
+          scheduled_at: item.scheduled_at || null,
+          categories: item.note?.meta?.categories || [],
+          status: groupKey,
+        })
+        upsertPlanner(data.data)
+      } else {
+        const { data } = await api.put(`/posts/${item.id}/status`, { status: GROUP_STATUS[groupKey], scheduled_at: item.scheduled_at || null })
+        upsertPost(data.data)
+      }
+    } catch (moveError) {
+      setError(moveError.response?.data?.message || 'Could not move this item.')
+    } finally {
+      setDragBusy('')
+    }
+  }
+
+  const openComposerModal = () => {
+    window.dispatchEvent(new CustomEvent('postflow:quick-action', { detail: { type: 'composer' } }))
+  }
+
   const canApprove = ['owner', 'admin', 'manager'].includes(activeWorkspace?.role)
   const visibleViewOptions = VIEWS.filter((item) => visibleViews.includes(item.key))
 
@@ -230,52 +342,7 @@ export default function Organizer() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Organizer</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Track posts and planner notes in table, Kanban, timeline, and calendar views.</p>
         </div>
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
-          <div className="flex flex-wrap rounded-xl border border-slate-200 bg-white p-0.5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            {FILTERS.map((item) => {
-              const Icon = item.icon
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => changeFilter(item.key)}
-                  className={clsx(
-                    'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition',
-                    filter === item.key
-                      ? 'bg-brand-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white',
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{item.label}</span>
-                  <span className={clsx('rounded-full px-2 py-0.5 text-xs', filter === item.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300')}>{counts[item.key]}</span>
-                </button>
-              )
-            })}
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
-              aria-label="Open organizer filters"
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              Filter
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <Card className="overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-800 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full lg:max-w-sm">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search posts, notes, or authors..."
-              className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-            />
-          </div>
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-end">
           <div className="flex overflow-x-auto rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
             {visibleViewOptions.map((item) => (
               <button
@@ -283,7 +350,7 @@ export default function Organizer() {
                 type="button"
                 onClick={() => changeView(item.key)}
                 className={clsx(
-                  'flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition lg:flex-none',
+                  'flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition xl:flex-none',
                   view === item.key ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white',
                 )}
               >
@@ -292,8 +359,36 @@ export default function Organizer() {
               </button>
             ))}
           </div>
+          <div className="relative w-full lg:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search organizer..."
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Clear organizer search">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" onClick={openComposerModal}><Plus className="h-4 w-4" /> New post</Button>
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500/25 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Filter"
+              title="Filter"
+            >
+              <ListFilter className="h-5 w-5 shrink-0" />
+            </button>
+          </div>
         </div>
+      </div>
 
+      <Card className="overflow-hidden">
         {error && <div className="border-b border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400">{error}</div>}
 
         {view === 'calendar' ? (
@@ -304,6 +399,7 @@ export default function Organizer() {
               plannerNotes={plannerNotes}
               showPlannerData={showPlannerData}
               showSocialData={showSocialData}
+              onOpenItem={setSelectedItem}
             />
           </div>
         ) : filteredItems.length === 0 ? (
@@ -317,7 +413,7 @@ export default function Organizer() {
         ) : (
           <>
             {view === 'table' && <TableView items={filteredItems} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} />}
-            {view === 'board' && <BoardView items={filteredItems} filter={filter} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} />}
+            {view === 'board' && <BoardView items={filteredItems} filter={filter} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} onMoveStage={moveItemStage} dragBusy={dragBusy} />}
             {view === 'timeline' && <TimelineView items={filteredItems} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} />}
           </>
         )}
@@ -334,9 +430,34 @@ export default function Organizer() {
         onToggleSocialData={() => setShowSocialData((current) => !current)}
         filter={filter}
         onFilterChange={changeFilter}
+        selectedGroups={selectedGroups}
+        onGroupsChange={changeGroups}
+        counts={counts}
+        approvalFilter={approvalFilter}
+        onApprovalFilterChange={setApprovalFilter}
+        sortOrder={sortOrder}
+        onSortOrderChange={setSortOrder}
+        accounts={accounts}
+        selectedAccountIds={selectedAccountIds}
+        onToggleAccount={toggleAccountFilter}
+        availableCategories={availableCategories}
+        selectedCategories={selectedCategories}
+        onToggleCategory={(category) => setSelectedCategories((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category])}
+        onClearCategories={() => setSelectedCategories([])}
       />
 
-      <OrganizerItemModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+      <OrganizerItemModal
+        item={selectedItem}
+        onClose={() => setSelectedItem(null)}
+        onChanged={updateItemFromModal}
+        onDeleted={(item) => {
+          removeItem(item)
+          setSelectedItem(null)
+        }}
+        canApprove={canApprove}
+        onReview={reviewPost}
+        reviewBusy={reviewBusy}
+      />
     </div>
   )
 }
@@ -374,7 +495,7 @@ function TableView({ items, canApprove, onOpen, onReview, reviewBusy }) {
   )
 }
 
-function BoardView({ items, filter, canApprove, onOpen, onReview, reviewBusy }) {
+function BoardView({ items, filter, canApprove, onOpen, onReview, reviewBusy, onMoveStage, dragBusy }) {
   const columns = filter === 'all' || filter === 'custom' ? Object.keys(GROUPS) : [filter]
   return (
     <div className={clsx('grid gap-4 overflow-x-auto p-4', columns.length === 3 ? 'lg:grid-cols-3' : 'grid-cols-1')}>
@@ -382,7 +503,16 @@ function BoardView({ items, filter, canApprove, onOpen, onReview, reviewBusy }) 
         const meta = GROUPS[key]
         const columnItems = items.filter((item) => groupFor(item) === key)
         return (
-          <section key={key} className={clsx('min-w-0 rounded-2xl border p-3', meta.panel)}>
+          <section
+            key={key}
+            className={clsx('min-w-0 rounded-2xl border p-3', meta.panel)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault()
+              const payload = event.dataTransfer.getData('application/json')
+              if (payload) onMoveStage(JSON.parse(payload), key)
+            }}
+          >
             <div className="mb-3 flex items-center justify-between px-1">
               <div className="flex items-center gap-2">
                 <span className={clsx('h-2.5 w-2.5 rounded-full', meta.dot)} />
@@ -391,7 +521,7 @@ function BoardView({ items, filter, canApprove, onOpen, onReview, reviewBusy }) 
               <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">{columnItems.length}</span>
             </div>
             <div className="space-y-3">
-              {columnItems.map((item) => <PlannerCard key={item.uid || item.id} post={item} canApprove={canApprove} onOpen={onOpen} onReview={onReview} reviewBusy={reviewBusy} />)}
+              {columnItems.map((item) => <PlannerCard key={item.uid || item.id} post={item} canApprove={canApprove} onOpen={onOpen} onReview={onReview} reviewBusy={reviewBusy} draggable dragBusy={dragBusy === `${item.kind}-${item.id}`} />)}
               {columnItems.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-400 dark:border-slate-700">No items in this stage</div>}
             </div>
           </section>
@@ -420,11 +550,16 @@ function TimelineView({ items, canApprove, onOpen, onReview, reviewBusy }) {
   )
 }
 
-function PlannerCard({ post, compact = false, canApprove, onOpen, onReview, reviewBusy }) {
+function PlannerCard({ post, compact = false, canApprove, onOpen, onReview, reviewBusy, draggable = false, dragBusy = false }) {
   return (
     <div
       role="button"
       tabIndex={0}
+      draggable={draggable && !dragBusy}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('application/json', JSON.stringify(post))
+      }}
       onClick={() => onOpen(post)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') onOpen(post)
@@ -432,6 +567,8 @@ function PlannerCard({ post, compact = false, canApprove, onOpen, onReview, revi
       className={clsx(
         'cursor-pointer rounded-xl border border-slate-200 bg-white shadow-sm transition hover:border-brand-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-brand-800',
         compact ? 'p-4' : 'p-3.5',
+        draggable && 'cursor-grab active:cursor-grabbing',
+        dragBusy && 'opacity-50',
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -511,6 +648,20 @@ function OrganizerSettingsDrawer({
   onToggleSocialData,
   filter,
   onFilterChange,
+  selectedGroups = ['all'],
+  onGroupsChange,
+  counts = {},
+  approvalFilter,
+  onApprovalFilterChange,
+  sortOrder,
+  onSortOrderChange,
+  accounts = [],
+  selectedAccountIds = [],
+  onToggleAccount,
+  availableCategories = [],
+  selectedCategories = [],
+  onToggleCategory,
+  onClearCategories,
 }) {
   useEffect(() => {
     if (!open) return undefined
@@ -571,19 +722,97 @@ function OrganizerSettingsDrawer({
           </section>
 
           <section>
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-900 dark:text-white">Status filter</span>
-              <select
-                value={filter}
-                onChange={(event) => onFilterChange(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-              >
-                {DRAWER_FILTERS.map((item) => (
-                  <option key={item.key} value={item.key}>{item.label}</option>
-                ))}
-              </select>
-            </label>
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">This filter is reflected across table, Kanban, timeline, and calendar views.</p>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Status filter</h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose one or multiple status groups to show in every view.</p>
+            <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
+              {DRAWER_FILTERS.map(({ key, label, icon: Icon }) => (
+                <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-slate-800">
+                  <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                    <Icon className="h-4 w-4 text-slate-400" />
+                    <span className="truncate">{label}</span>
+                    <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">{counts[key] ?? 0}</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={selectedGroups.includes(key)}
+                    onChange={() => {
+                      if (key === 'custom') return onFilterChange('custom')
+                      if (key === 'all') return onGroupsChange(['all'])
+                      const withoutAll = selectedGroups.filter((item) => item !== 'all' && item !== 'custom')
+                      const next = withoutAll.includes(key) ? withoutAll.filter((item) => item !== key) : [...withoutAll, key]
+                      onGroupsChange(next.length ? next : ['all'])
+                    }}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">List filters</h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Refine approval state and ordering for the organizer views.</p>
+            <div className="mt-3 grid gap-3">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Approval</span>
+                <select value={approvalFilter} onChange={(event) => onApprovalFilterChange(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                  <option value="both">Approval: all</option>
+                  <option value="pending">Pending approval only</option>
+                  <option value="approved">Approved only</option>
+                  <option value="hide_pending">Hide pending approval</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Sort</span>
+                <select value={sortOrder} onChange={(event) => onSortOrderChange(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                  <option value="desc">Newest first</option>
+                  <option value="asc">Oldest first</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Social profiles</h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Select one or more connected profiles to show in Organizer.</p>
+            <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
+              {accounts.map((account) => (
+                <label key={account.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-slate-800">
+                  <span className="min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">
+                    <span className="block truncate">{account.name}</span>
+                    <span className="block truncate text-xs text-slate-400">{account.platform_label || account.platform}</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={selectedAccountIds.includes(account.id)}
+                    onChange={() => onToggleAccount(account.id)}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                </label>
+              ))}
+              {accounts.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-sm text-slate-400 dark:border-slate-800">No connected accounts.</p>}
+            </div>
+            {selectedAccountIds.length > 0 && <Button type="button" size="sm" variant="ghost" className="mt-3" onClick={() => selectedAccountIds.forEach((id) => onToggleAccount(id))}>Clear profile filters</Button>}
+          </section>
+
+          <section>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Categories</h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Filter posts and planner notes by saved categories.</p>
+            <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
+              {availableCategories.map((category) => (
+                <label key={category} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-slate-800">
+                  <span className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">{category}</span>
+                  <input
+                    type="checkbox"
+                    checked={selectedCategories.includes(category)}
+                    onChange={() => onToggleCategory(category)}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                </label>
+              ))}
+              {availableCategories.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-sm text-slate-400 dark:border-slate-800">No categories yet.</p>}
+            </div>
+            {selectedCategories.length > 0 && <Button type="button" size="sm" variant="ghost" className="mt-3" onClick={onClearCategories}>Clear category filters</Button>}
           </section>
         </div>
       </aside>
@@ -611,56 +840,180 @@ function SwitchRow({ label, description, checked, onChange }) {
   )
 }
 
-function OrganizerItemModal({ item, onClose }) {
+function OrganizerItemModal({ item, onClose, onChanged, onDeleted, canApprove, onReview, reviewBusy }) {
+  const [editing, setEditing] = useState(false)
+  const [metaOpen, setMetaOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState({ status: '', scheduled_at: '', categories: '' })
+
+  useEffect(() => {
+    if (!item) return
+    setEditing(false)
+    setMetaOpen(false)
+    setConfirmDelete(false)
+    setForm({
+      status: item.kind === 'planner' ? groupFor(item) : item.status || 'draft',
+      scheduled_at: toDateTimeInput(item.scheduled_at || ''),
+      categories: (item.note?.meta?.categories || []).join(', '),
+    })
+  }, [item])
+
   if (!item) return null
 
   const isPlanner = item.kind === 'planner'
+  const canDelete = isPlanner || item.status !== 'publishing'
+
+  const save = async (event) => {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      if (isPlanner) {
+        const { data } = await api.put(`/planner-notes/${item.id}`, {
+          title: item.note?.title || item.title || 'Untitled plan',
+          content_html: item.note?.content_html || `<p>${escapeHtml(item.content || '')}</p>`,
+          ai_prompt: item.note?.meta?.ai_prompt || '',
+          scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
+          categories: splitList(form.categories),
+          status: form.status,
+        })
+        onChanged(noteToOrganizerItem(data.data))
+      } else {
+        const { data } = await api.put(`/posts/${item.id}/status`, {
+          status: form.status,
+          scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
+        })
+        onChanged({ ...data.data, kind: 'post' })
+      }
+      setEditing(false)
+    } catch (error) {
+      window.alert(error.response?.data?.message || 'Could not save this item.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async () => {
+    setBusy(true)
+    try {
+      if (isPlanner) await api.delete(`/planner-notes/${item.id}`)
+      else await api.delete(`/posts/${item.id}`)
+      onDeleted(item)
+    } catch (error) {
+      window.alert(error.response?.data?.message || 'Could not delete this item.')
+    } finally {
+      setBusy(false)
+      setConfirmDelete(false)
+    }
+  }
 
   return (
     <Modal
       open={Boolean(item)}
       title={item.title || (isPlanner ? 'Planner details' : 'Post details')}
-      description={`${isPlanner ? 'Planner note' : 'Post'} details and schedule information.`}
+      description={`${isPlanner ? 'Planner note' : 'Post'} details, status, schedule, and metadata.`}
       onClose={onClose}
-      size="lg"
+      size="xl"
+      fullscreenable
     >
-      <div className="space-y-5 p-5">
-        <div className="flex flex-wrap gap-2">
-          <StageBadges post={item} />
-          <Platforms post={item} />
-        </div>
-
-        <div>
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Content</p>
-          <p className="whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
-            {item.content || 'No content yet.'}
-          </p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <DetailBox label="Owner" value={item.author?.name || 'Unknown'} />
-          <DetailBox label="Date" value={planDate(item)} />
-          <DetailBox label="Source" value={isPlanner ? 'Planner' : 'Social post'} />
-          <DetailBox label="Status" value={item.status_label || item.status || 'Unknown'} />
-        </div>
-
-        {!isPlanner && (item.variants || []).length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Platforms</p>
+      <div className={clsx('grid min-h-[520px]', metaOpen ? 'lg:grid-cols-[1fr_320px]' : 'grid-cols-1')}>
+        <form onSubmit={save} className="space-y-5 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              {item.variants.map((variant) => (
-                <div key={variant.id} className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
-                  <PlatformBadge platform={variant.platform} size="xs" />
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                    {variant.social_account?.name || variant.platform}
-                  </span>
-                </div>
-              ))}
+              <StageBadges post={item} />
+              <Platforms post={item} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="secondary" onClick={() => setEditing((value) => !value)}><Edit3 className="h-3.5 w-3.5" /> Edit</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setMetaOpen((value) => !value)}><Info className="h-3.5 w-3.5" /> Meta</Button>
             </div>
           </div>
+
+          <div>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Content</p>
+            <p className="whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+              {item.content || 'No content yet.'}
+            </p>
+          </div>
+
+          {editing && (
+            <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40 sm:grid-cols-2">
+              <SelectField
+                label={isPlanner ? 'Planner status' : 'Post status'}
+                value={form.status}
+                onChange={(value) => setForm({ ...form, status: value })}
+                options={isPlanner ? [['pending', 'Pending'], ['progress', 'Progress'], ['completed', 'Completed']] : STATUS_OPTIONS}
+              />
+              <DateTimeField label="Schedule" type="datetime-local" value={form.scheduled_at} onChange={(event) => setForm({ ...form, scheduled_at: event.target.value })} />
+              {isPlanner && <InputLike label="Categories" value={form.categories} onChange={(value) => setForm({ ...form, categories: value })} placeholder="Campaign, Launch, Ideas" />}
+            </div>
+          )}
+
+          {canApprove && !isPlanner && item.status === 'pending_approval' && (
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/20">
+              <Button type="button" size="sm" loading={reviewBusy === `approved-${item.id}`} disabled={Boolean(reviewBusy)} onClick={() => onReview(item, 'approved')}><Check className="h-3.5 w-3.5" /> Approve</Button>
+              <Button type="button" size="sm" variant="secondary" loading={reviewBusy === `rejected-${item.id}`} disabled={Boolean(reviewBusy)} onClick={() => onReview(item, 'rejected')}><X className="h-3.5 w-3.5" /> Reject</Button>
+            </div>
+          )}
+
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+            <Button type="button" variant="ghost" className="text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40" disabled={!canDelete || busy} onClick={() => setConfirmDelete(true)}>
+              <Trash2 className="h-4 w-4" /> Delete
+            </Button>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
+              <Button type="submit" loading={busy} disabled={!editing}><Save className="h-4 w-4" /> Save changes</Button>
+            </div>
+          </div>
+        </form>
+
+        {metaOpen && (
+          <aside className="border-t border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950/50 lg:border-l lg:border-t-0">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900 dark:text-white">Metadata</h3>
+              <button type="button" onClick={() => setMetaOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="grid gap-3">
+              <DetailBox label="Owner" value={item.author?.name || 'Unknown'} />
+              <DetailBox label="Date" value={planDate(item)} />
+              <DetailBox label="Source" value={isPlanner ? 'Planner' : 'Social post'} />
+              <DetailBox label="Status" value={item.status_label || item.status || 'Unknown'} />
+              <DetailBox label="Created" value={item.created_at ? new Date(item.created_at).toLocaleString() : 'Unknown'} />
+              <DetailBox label="Updated" value={item.updated_at ? new Date(item.updated_at).toLocaleString() : 'Unknown'} />
+            </div>
+          </aside>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmDelete}
+        title={isPlanner ? 'Delete planner note' : 'Delete post'}
+        description={`Delete "${item.title || item.content || 'this item'}"? This action cannot be undone.`}
+        confirmLabel={isPlanner ? 'Delete planner' : 'Delete post'}
+        loading={busy}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={remove}
+      />
     </Modal>
+  )
+}
+
+function SelectField({ label, value, onChange, options }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+        {options.map(([key, labelText]) => <option key={key} value={key}>{labelText}</option>)}
+      </select>
+    </label>
+  )
+}
+
+function InputLike({ label, value, onChange, placeholder }) {
+  return (
+    <label className="block sm:col-span-2">
+      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
+      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+    </label>
   )
 }
 
@@ -680,8 +1033,8 @@ function noteToOrganizerItem(note) {
     kind: 'planner',
     title: note.title,
     content: note.excerpt || note.content_text || '',
-    status: 'note',
-    status_label: 'Planner note',
+    status: note.status || 'note',
+    status_label: plannerStatusLabel(note.status),
     status_color: 'indigo',
     author: note.author,
     scheduled_at: note.meta?.scheduled_at || null,
@@ -692,15 +1045,62 @@ function noteToOrganizerItem(note) {
   }
 }
 
+function plannerStatusLabel(status) {
+  if (status === 'progress') return 'Planner progress'
+  if (status === 'completed') return 'Planner completed'
+  return 'Planner note'
+}
+
 function groupFor(post) {
-  if (post.kind === 'planner') return 'pending'
+  if (post.kind === 'planner') {
+    if (post.status === 'progress') return 'progress'
+    if (post.status === 'completed') return 'completed'
+    return 'pending'
+  }
   return Object.keys(GROUPS).find((key) => GROUPS[key].statuses.includes(post.status)) || 'pending'
 }
 
-function compareItems(a, b) {
+function compareItems(a, b, sortOrder = 'desc') {
   const aDate = new Date(a.scheduled_at || a.published_at || a.updated_at || a.created_at).getTime()
   const bDate = new Date(b.scheduled_at || b.published_at || b.updated_at || b.created_at).getTime()
-  return aDate - bDate
+  return sortOrder === 'asc' ? aDate - bDate : bDate - aDate
+}
+
+function approvalMatches(item, approvalFilter) {
+  if (item.kind === 'planner') return true
+  if (approvalFilter === 'pending') return item.status === 'pending_approval'
+  if (approvalFilter === 'approved') return item.status === 'approved'
+  if (approvalFilter === 'hide_pending') return item.status !== 'pending_approval'
+  return true
+}
+
+function accountMatches(item, selectedAccountIds) {
+  if (!selectedAccountIds.length || item.kind === 'planner') return true
+  return (item.variants || []).some((variant) => selectedAccountIds.includes(variant.social_account?.id || variant.social_account_id))
+}
+
+function getItemCategories(item) {
+  if (item.kind === 'planner') return item.note?.meta?.categories || []
+  return item.options?.categories || []
+}
+
+function categoryMatches(item, selectedCategories) {
+  if (!selectedCategories.length) return true
+  const categories = getItemCategories(item)
+  return categories.some((category) => selectedCategories.includes(category))
+}
+
+function splitList(value) {
+  return String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
 
 function planDate(post, short = false) {
@@ -709,6 +1109,14 @@ function planDate(post, short = false) {
   return new Date(value).toLocaleString('default', short
     ? { month: 'short', day: 'numeric' }
     : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+function toDateTimeInput(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
 }
 
 function contentTitle(content = '') {

@@ -34,6 +34,7 @@ export default function Calendar({
   plannerNotes = [],
   showPlannerData = false,
   showSocialData = true,
+  onOpenItem = null,
 }) {
   const navigate = useNavigate()
   const [cursor, setCursor] = useState(() => new Date())
@@ -181,6 +182,11 @@ export default function Calendar({
   }
 
   const createPlannerAt = async (date) => {
+    if (embedded) {
+      window.dispatchEvent(new CustomEvent('postflow:quick-action', { detail: { type: 'planner', scheduledAt: date.toISOString() } }))
+      return
+    }
+
     const key = date.toISOString()
     setPlannerBusyDate(key)
     try {
@@ -200,7 +206,7 @@ export default function Calendar({
   }
 
   const sharedViewProps = {
-    onOpen: setSelectedPost,
+    onOpen: onOpenItem || setSelectedPost,
     onMove: movePost,
     onDragOver: setDropTarget,
     onDragEnd: () => setDropTarget(null),
@@ -283,7 +289,7 @@ export default function Calendar({
         </>
       )}
 
-      {selectedPost && (
+      {selectedPost && !onOpenItem && (
         <PostDetailsModal
           post={selectedPost}
           action={modalAction}

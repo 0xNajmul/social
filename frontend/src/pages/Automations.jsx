@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Workflow, Play, Trash2, Rss, X } from 'lucide-react'
 import api from '../lib/api'
-import { Card, Button, Badge, Input, PageLoader, EmptyState } from '../components/ui'
+import { Card, Button, Badge, Input, PageLoader, EmptyState, ConfirmDialog } from '../components/ui'
 
 const TYPES = [
   { value: 'rss_feed', label: 'RSS feed' },
@@ -14,6 +14,8 @@ export default function Automations() {
   const [accounts, setAccounts] = useState([])
   const [show, setShow] = useState(false)
   const [form, setForm] = useState({ name: '', type: 'rss_feed', feed_url: '', use_ai: true, account_ids: [] })
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const load = () => {
     api.get('/automations').then(({ data }) => setAutomations(data.data))
@@ -40,7 +42,17 @@ export default function Automations() {
   }
 
   const run = async (id) => { await api.post(`/automations/${id}/run`); alert('Automation queued.') }
-  const remove = async (id) => { if (confirm('Delete?')) { await api.delete(`/automations/${id}`); load() } }
+  const remove = async () => {
+    if (!confirmDelete) return
+    setDeleteBusy(true)
+    try {
+      await api.delete(`/automations/${confirmDelete.id}`)
+      setConfirmDelete(null)
+      load()
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
   const toggleAccount = (id) => setForm((f) => ({ ...f, account_ids: f.account_ids.includes(id) ? f.account_ids.filter((x) => x !== id) : [...f.account_ids, id] }))
 
   if (!automations) return <PageLoader />
@@ -79,7 +91,7 @@ export default function Automations() {
               </div>
               <div className="mt-4 flex gap-2">
                 <Button size="sm" variant="secondary" onClick={() => run(a.id)}><Play className="h-3.5 w-3.5" /> Run now</Button>
-                <Button size="sm" variant="ghost" className="text-rose-500" onClick={() => remove(a.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                <Button size="sm" variant="ghost" className="text-rose-500" onClick={() => setConfirmDelete(a)}><Trash2 className="h-3.5 w-3.5" /></Button>
               </div>
             </Card>
           ))}
@@ -120,6 +132,16 @@ export default function Automations() {
           </Card>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(confirmDelete)}
+        title="Delete automation"
+        description={`Delete "${confirmDelete?.name || 'this automation'}"? It will stop creating future posts.`}
+        confirmLabel="Delete automation"
+        loading={deleteBusy}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={remove}
+      />
     </div>
   )
 }

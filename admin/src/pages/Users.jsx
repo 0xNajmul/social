@@ -6,7 +6,7 @@ import api from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Input, Modal, PageLoader } from '../components/ui'
 
-const EMPTY = { name: '', email: '', password: '', timezone: 'UTC', locale: 'en', is_admin: false }
+const EMPTY = { name: '', email: '', password: '', timezone: 'UTC', locale: 'en', is_admin: false, admin_role_id: '' }
 
 const USER_COLUMNS = [
   { key: 'user', label: 'User' },
@@ -31,6 +31,7 @@ export default function Users() {
   const [message, setMessage] = useState(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [visibleColumns, setVisibleColumns] = useState(() => readColumns())
+  const [roles, setRoles] = useState([])
 
   useEffect(() => {
     localStorage.setItem('admin_users_columns', JSON.stringify(visibleColumns))
@@ -39,10 +40,25 @@ export default function Users() {
   const shownColumns = useMemo(() => USER_COLUMNS.filter((column) => visibleColumns.includes(column.key)), [visibleColumns])
 
   const load = (query = search) => api.get('/admin/users', { params: { search: query || undefined, per_page: 100 } }).then(({ data }) => setUsers(data.data))
-  useEffect(() => { api.get('/admin/users', { params: { per_page: 100 } }).then(({ data }) => setUsers(data.data)) }, [])
+  useEffect(() => {
+    api.get('/admin/users', { params: { per_page: 100 } }).then(({ data }) => setUsers(data.data))
+    api.get('/admin/roles').then(({ data }) => setRoles(data.data || [])).catch(() => setRoles([]))
+  }, [])
 
   const openCreate = () => { setEditing('new'); setForm(EMPTY); setErrors({}) }
-  const openEdit = (user) => { setEditing(user); setForm({ name: user.name, email: user.email, password: '', timezone: user.timezone || 'UTC', locale: user.locale || 'en', is_admin: user.is_admin }); setErrors({}) }
+  const openEdit = (user) => {
+    setEditing(user)
+    setForm({
+      name: user.name,
+      email: user.email,
+      password: '',
+      timezone: user.timezone || 'UTC',
+      locale: user.locale || 'en',
+      is_admin: user.is_admin,
+      admin_role_id: user.admin_role_id || user.admin_role?.id || '',
+    })
+    setErrors({})
+  }
   const close = () => { setEditing(null); setErrors({}) }
 
   const toggleColumn = (key) => {
@@ -60,7 +76,7 @@ export default function Users() {
     setBusy(true)
     setErrors({})
     try {
-      const payload = { ...form }
+      const payload = { ...form, admin_role_id: form.is_admin && form.admin_role_id ? Number(form.admin_role_id) : null }
       if (editing !== 'new' && !payload.password) delete payload.password
       if (editing === 'new') await api.post('/admin/users', payload)
       else await api.put(`/admin/users/${editing.id}`, payload)
@@ -111,7 +127,8 @@ export default function Users() {
         <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto">
           <div className="relative flex-1 xl:w-80">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or email..." className="pl-9" onKeyDown={(event) => event.key === 'Enter' && load()} />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or email..." className="pl-9 pr-9" onKeyDown={(event) => event.key === 'Enter' && load()} />
+            {search && <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-500 hover:bg-slate-700 hover:text-white" aria-label="Clear user search"><X className="h-3.5 w-3.5" /></button>}
           </div>
           <Button size="sm" variant="secondary" onClick={() => load()}>Search</Button>
           <Button size="sm" onClick={openCreate}><Plus className="h-4 w-4" /> Add user</Button>
@@ -146,7 +163,7 @@ export default function Users() {
                       </td>
                     )}
                     {visibleColumns.includes('workspaces') && <td className="px-3 py-2">{user.workspaces_count ?? 0}</td>}
-                    {visibleColumns.includes('access') && <td className="px-3 py-2">{user.is_admin ? <Badge color="rose">Administrator</Badge> : <Badge>User</Badge>}</td>}
+                    {visibleColumns.includes('access') && <td className="px-3 py-2">{user.is_admin ? <div className="flex flex-wrap gap-1.5"><Badge color="rose">Administrator</Badge>{user.admin_role?.name && <Badge color="indigo">{user.admin_role.name}</Badge>}</div> : <Badge>User</Badge>}</td>}
                     {visibleColumns.includes('last_login') && <td className="whitespace-nowrap px-3 py-2 text-slate-500">{user.last_login_at ? new Date(user.last_login_at).toLocaleDateString() : 'Never'}</td>}
                     {visibleColumns.includes('joined') && <td className="whitespace-nowrap px-3 py-2 text-slate-500">{new Date(user.created_at).toLocaleDateString()}</td>}
                     {visibleColumns.includes('actions') && (
@@ -171,7 +188,34 @@ export default function Users() {
       <ColumnDrawer open={filterOpen} visibleColumns={visibleColumns} toggleColumn={toggleColumn} onClose={() => setFilterOpen(false)} />
 
       <Modal open={Boolean(editing)} title={editing === 'new' ? 'Create user' : 'Edit user'} description="Manage identity and administrator access." onClose={close}>
-        <form onSubmit={save} className="grid gap-5 p-5 sm:grid-cols-2"><Input label="Full name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} error={errors.name?.[0]} required /><Input label="Email address" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} error={errors.email?.[0]} required /><Input label={editing === 'new' ? 'Password' : 'New password (optional)'} type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} error={errors.password?.[0]} required={editing === 'new'} /><Input label="Timezone" value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} error={errors.timezone?.[0]} required /><Input label="Locale" value={form.locale} onChange={(event) => setForm({ ...form, locale: event.target.value })} error={errors.locale?.[0]} required /><label className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/50 p-4 sm:self-end"><input type="checkbox" checked={form.is_admin} onChange={(event) => setForm({ ...form, is_admin: event.target.checked })} disabled={editing?.id === admin?.id} className="h-4 w-4 rounded border-slate-600 text-brand-600" /><div><p className="text-sm font-medium text-slate-200">Administrator access</p><p className="text-xs text-slate-500">Access the admin console.</p></div></label><div className="flex justify-end gap-2 border-t border-slate-800 pt-4 sm:col-span-2"><Button type="button" size="sm" variant="ghost" onClick={close}>Cancel</Button><Button type="submit" size="sm" loading={busy}><ShieldCheck className="h-4 w-4" /> Save user</Button></div></form>
+        <form onSubmit={save} className="grid gap-5 p-5 sm:grid-cols-2">
+          <Input label="Full name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} error={errors.name?.[0]} required />
+          <Input label="Email address" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} error={errors.email?.[0]} required />
+          <Input label={editing === 'new' ? 'Password' : 'New password (optional)'} type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} error={errors.password?.[0]} required={editing === 'new'} />
+          <Input label="Timezone" value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} error={errors.timezone?.[0]} required />
+          <Input label="Locale" value={form.locale} onChange={(event) => setForm({ ...form, locale: event.target.value })} error={errors.locale?.[0]} required />
+          <label className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+            <input type="checkbox" checked={form.is_admin} onChange={(event) => setForm({ ...form, is_admin: event.target.checked })} disabled={editing?.id === admin?.id} className="h-4 w-4 rounded border-slate-600 text-brand-600" />
+            <div><p className="text-sm font-medium text-slate-200">Administrator access</p><p className="text-xs text-slate-500">Access the admin console.</p></div>
+          </label>
+          <label className="sm:col-span-2">
+            <span className="mb-1.5 block text-sm font-medium text-slate-300">Admin role</span>
+            <select
+              value={form.admin_role_id}
+              onChange={(event) => setForm({ ...form, admin_role_id: event.target.value })}
+              disabled={!form.is_admin}
+              className="w-full rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2.5 text-sm text-slate-100 outline-none transition disabled:opacity-50 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+            >
+              <option value="">No custom role</option>
+              {roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+            </select>
+            {errors.admin_role_id?.[0] && <span className="mt-1 block text-xs text-rose-400">{errors.admin_role_id[0]}</span>}
+          </label>
+          <div className="flex justify-end gap-2 border-t border-slate-800 pt-4 sm:col-span-2">
+            <Button type="button" size="sm" variant="ghost" onClick={close}>Cancel</Button>
+            <Button type="submit" size="sm" loading={busy}><ShieldCheck className="h-4 w-4" /> Save user</Button>
+          </div>
+        </form>
       </Modal>
 
       <Modal open={Boolean(confirmDelete)} title="Delete user" description="This action cannot be undone." onClose={() => setConfirmDelete(null)} size="md"><div className="p-5"><p className="text-sm text-slate-300">Delete <strong className="text-white">{confirmDelete?.name}</strong>? Users who own workspaces must transfer or delete them first.</p><div className="mt-5 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button><Button size="sm" variant="danger" loading={busy} onClick={() => remove(confirmDelete)}>Delete user</Button></div></div></Modal>

@@ -19,6 +19,7 @@ import { useAuth } from '../context/AuthContext'
 import { Button, Card, Input, Modal, Textarea } from './ui'
 import MediaDropzone from './composer/MediaDropzone'
 import { currentTimezone, timezones } from '../lib/timezones'
+import DateTimeField from './DateTimeField'
 
 const ComposerContent = lazy(() => import('../pages/Composer').then((module) => ({ default: module.ComposerContent })))
 
@@ -77,7 +78,7 @@ export default function QuickActions() {
         </button>
 
         {open && (
-          <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-800" role="menu">
+          <div className="absolute right-0 z-[70] mt-2 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-800" role="menu">
             {ACTIONS.map(({ key, label, description, icon: Icon }) => (
               <button
                 key={key}
@@ -108,7 +109,7 @@ export default function QuickActions() {
       </Modal>
 
       <Modal open={modalType === 'planner'} title="New planner" description="Save a quick plan or note into Planner." onClose={closeModal} size="lg" fullscreenable>
-        <PlannerQuickForm onDone={closeModal} />
+        <PlannerQuickForm onDone={closeModal} initialScheduledAt={active?.scheduledAt} />
       </Modal>
 
       <Modal open={modalType === 'account'} title="Connect account" description="Open the account connector from anywhere." onClose={closeModal} size="md">
@@ -137,8 +138,8 @@ export default function QuickActions() {
   )
 }
 
-function PlannerQuickForm({ onDone }) {
-  const [form, setForm] = useState({ title: '', content: '' })
+function PlannerQuickForm({ onDone, initialScheduledAt }) {
+  const [form, setForm] = useState({ title: '', content: '', scheduled_at: toLocalDateTimeInput(initialScheduledAt) })
   const [busy, setBusy] = useState(false)
 
   const save = async (event) => {
@@ -148,6 +149,7 @@ function PlannerQuickForm({ onDone }) {
       await api.post('/planner-notes', {
         title: form.title,
         content_html: textToHtml(form.content),
+        scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
       })
       onDone()
       window.dispatchEvent(new CustomEvent('postflow:refresh-planner'))
@@ -161,6 +163,7 @@ function PlannerQuickForm({ onDone }) {
   return (
     <form onSubmit={save} className="space-y-4 p-5">
       <Input label="Plan title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required placeholder="Launch plan" />
+      <DateTimeField label="Schedule date" type="datetime-local" value={form.scheduled_at} onChange={(event) => setForm({ ...form, scheduled_at: event.target.value })} />
       <Textarea label="Plan content" rows={7} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} required placeholder="Notes, brief, hooks, campaign ideas..." />
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
         <Button type="button" variant="ghost" onClick={onDone}>Cancel</Button>
@@ -168,6 +171,14 @@ function PlannerQuickForm({ onDone }) {
       </div>
     </form>
   )
+}
+
+function toLocalDateTimeInput(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
 }
 
 function MediaUploadQuickForm({ onDone }) {

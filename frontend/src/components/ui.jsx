@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Loader2, Maximize2, Minimize2, X } from 'lucide-react'
+import { AlertTriangle, Loader2, Maximize2, Minimize2, Sparkles, X } from 'lucide-react'
 
 export function Card({ className, children, ...props }) {
   return (
@@ -77,27 +78,51 @@ export function Textarea({ className, label, error, ...props }) {
 }
 
 export function Modal({ open, title, description, onClose, children, size = 'lg', fullscreenable = false }) {
-  const [fullscreen, setFullscreen] = useState(false)
-
-  useEffect(() => {
-    if (!open) setFullscreen(false)
-  }, [open])
-
   if (!open) return null
-  const widths = { md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl', screen: 'max-w-7xl' }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <ModalContent title={title} description={description} onClose={onClose} size={size} fullscreenable={fullscreenable}>
+      {children}
+    </ModalContent>
+  )
+}
+
+function ModalContent({ title, description, onClose, children, size, fullscreenable }) {
+  const [stage, setStage] = useState(() => (fullscreenable ? preferredPopupStage() : 0))
+  const widths = { md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl', screen: 'max-w-7xl' }
+  const nextStage = () => setStage((value) => (value + 1) % 3)
+  const sidebarHidden = typeof localStorage !== 'undefined' && localStorage.getItem('postflow_sidebar_hidden') === 'true'
+  const contentLeft = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches && !sidebarHidden ? '16rem' : '0px'
+  const contentMode = fullscreenable && stage === 1
+  const fullMode = fullscreenable && stage === 2
+  const stageLabel = stage === 0 ? 'Open in content area' : stage === 1 ? 'Open fullscreen' : 'Exit fullscreen'
+
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <div
+      className={clsx(
+        'fixed z-[80] flex overflow-y-auto',
+        contentMode && 'bottom-0 right-0 top-16 items-stretch justify-stretch bg-transparent p-0',
+        fullMode && 'inset-0 z-[90] items-stretch justify-stretch bg-slate-950/70 p-0',
+        !contentMode && !fullMode && 'inset-0 items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm sm:p-6',
+      )}
+      style={contentMode ? { left: contentLeft } : undefined}
+      onMouseDown={(event) => event.target === event.currentTarget && !contentMode && onClose()}
+    >
       <div
         className={clsx(
-          'my-auto w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900',
-          fullscreen ? 'h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] max-w-none' : 'max-h-[92vh]',
-          !fullscreen && (widths[size] || widths.lg),
+          'w-full overflow-y-auto bg-white shadow-2xl dark:bg-slate-900',
+          contentMode && 'h-full max-h-none rounded-none border-0 shadow-none',
+          fullMode && 'h-screen max-h-none max-w-none rounded-none border-0 shadow-none',
+          !contentMode && !fullMode && 'my-auto rounded-2xl border border-slate-200 dark:border-slate-700',
+          !contentMode && !fullMode && 'max-h-[92vh]',
+          !contentMode && !fullMode && (widths[size] || widths.lg),
         )}
         role="dialog"
         aria-modal="true"
       >
-        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
+        <div className="sticky top-0 z-30 flex items-start justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
             {description && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>}
@@ -106,12 +131,12 @@ export function Modal({ open, title, description, onClose, children, size = 'lg'
             {fullscreenable && (
               <button
                 type="button"
-                onClick={() => setFullscreen((value) => !value)}
+                onClick={nextStage}
                 className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
-                aria-label={fullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
-                title={fullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
+                aria-label={stageLabel}
+                title={stageLabel}
               >
-                {fullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                {stage === 2 ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
               </button>
             )}
             <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white">
@@ -121,8 +146,15 @@ export function Modal({ open, title, description, onClose, children, size = 'lg'
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
+}
+
+function preferredPopupStage() {
+  if (typeof localStorage === 'undefined') return 0
+  const preferred = Number(localStorage.getItem('postflow_popup_default_stage') || '0')
+  return [0, 1, 2].includes(preferred) ? preferred : 0
 }
 
 const badgeColors = {
@@ -151,8 +183,54 @@ export function Spinner({ className }) {
 export function PageLoader() {
   return (
     <div className="flex h-64 items-center justify-center">
-      <Spinner className="h-8 w-8" />
+      <div className="relative flex flex-col items-center gap-4">
+        <div className="relative flex h-16 w-16 items-center justify-center">
+          <span className="absolute inset-0 rounded-3xl bg-brand-500/10 blur-xl" />
+          <span className="absolute h-16 w-16 animate-spin rounded-3xl border-2 border-transparent border-t-brand-500 border-r-brand-300" />
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-lg shadow-brand-600/25">
+            <Sparkles className="h-5 w-5" />
+          </span>
+        </div>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Loading workspace</p>
+          <p className="mt-1 text-xs text-slate-400">Preparing your dashboard...</p>
+        </div>
+      </div>
     </div>
+  )
+}
+
+export function ConfirmDialog({
+  open,
+  title = 'Are you sure?',
+  description,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  tone = 'danger',
+  loading = false,
+  onConfirm,
+  onClose,
+}) {
+  if (!open) return null
+
+  return (
+    <Modal open={open} title={title} description={description} onClose={onClose} size="md">
+      <div className="space-y-5 p-5">
+        <div className={clsx(
+          'flex items-start gap-3 rounded-2xl border p-4',
+          tone === 'danger'
+            ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300'
+            : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300',
+        )}>
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <p className="text-sm leading-6">{description || 'This action cannot be undone.'}</p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>{cancelLabel}</Button>
+          <Button type="button" variant={tone === 'danger' ? 'danger' : 'primary'} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

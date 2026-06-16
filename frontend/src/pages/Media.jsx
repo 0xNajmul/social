@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, Trash2, FileVideo, Image as ImageIcon, FileText, Search, X, Play, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FolderPlus, FolderOpen, Upload, Trash2, FileVideo, Image as ImageIcon, FileText, Search, X, Play, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import api from '../lib/api'
 import { mediaUrl } from '../lib/media'
-import { Card, Button, PageLoader, EmptyState, Input } from '../components/ui'
+import { Card, Button, PageLoader, EmptyState, Input, ConfirmDialog, Modal } from '../components/ui'
 
 function isPreviewableImage(type) {
   return type === 'image' || type === 'gif'
@@ -12,48 +12,138 @@ function isPreviewableImage(type) {
 export default function Media() {
   const [assets, setAssets] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadQueue, setUploadQueue] = useState([])
+  const [folders, setFolders] = useState([])
+  const [activeFolder, setActiveFolder] = useState('all')
+  const [folderOpen, setFolderOpen] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [folderBusy, setFolderBusy] = useState(false)
   const [search, setSearch] = useState('')
   const [previewIndex, setPreviewIndex] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const fileRef = useRef()
+  const uploadControllers = useRef(new Map())
 
-  const load = useCallback((query = search) =>
+  const loadFolders = useCallback(() => {
+    api.get('/media-folders').then(({ data }) => setFolders(data.data || [])).catch(() => setFolders([]))
+  }, [])
+
+  const load = useCallback((query = search, folder = activeFolder) =>
     api
-      .get('/media', { params: { per_page: 100, search: query.trim() || undefined } })
-      .then(({ data }) => setAssets(data.data)), [search])
+      .get('/media', {
+        params: {
+          per_page: 100,
+          search: query.trim() || undefined,
+          folder_id: folder === 'all' ? undefined : folder,
+        },
+      })
+      .then(({ data }) => setAssets(data.data)), [activeFolder, search])
+
+  useEffect(() => {
+    loadFolders()
+  }, [loadFolders])
 
   useEffect(() => {
     const timer = setTimeout(() => load(search), search ? 300 : 0)
     return () => clearTimeout(timer)
-  }, [load, search])
+  }, [activeFolder, load, search])
 
-  const upload = async (e) => {
+  const upload = (e) => {
     const files = [...(e.target.files || [])]
     if (!files.length) return
+    files.forEach(uploadFile)
+    e.target.value = ''
+  }
+
+  const uploadFile = async (file) => {
+    const id = `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const controller = new AbortController()
+    const localUrl = file.type.startsWith('image/') || file.type.startsWith('video/') ? URL.createObjectURL(file) : null
+    uploadControllers.current.set(id, controller)
     setUploading(true)
+    setUploadQueue((current) => [{
+      id,
+      file,
+      localUrl,
+      name: file.name,
+      type: file.type.startsWith('video/') ? 'video' : file.type.startsWith('image/') ? 'image' : 'document',
+      size: file.size,
+      progress: 0,
+      status: 'uploading',
+      error: '',
+    }, ...current])
+
     try {
-      for (const file of files) {
-        const form = new FormData()
-        form.append('file', file)
-        await api.post('/media', form, { headers: { 'Content-Type': 'multipart/form-data' } })
-      }
+      const form = new FormData()
+      form.append('file', file)
+      if (activeFolder !== 'all' && activeFolder !== 'root') form.append('folder_id', activeFolder)
+      await api.post('/media', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        signal: controller.signal,
+        onUploadProgress: (event) => {
+          const total = event.total || file.size || 1
+          const progress = Math.min(99, Math.round((event.loaded / total) * 100))
+          setUploadQueue((current) => current.map((item) => item.id === id ? { ...item, progress } : item))
+        },
+      })
+      setUploadQueue((current) => current.map((item) => item.id === id ? { ...item, progress: 100, status: 'done' } : item))
       await load()
+      window.setTimeout(() => {
+        setUploadQueue((current) => current.filter((item) => item.id !== id))
+        if (localUrl) URL.revokeObjectURL(localUrl)
+      }, 1400)
     } catch (err) {
-      alert(err.response?.data?.message || 'Upload failed')
+      if (controller.signal.aborted || err.code === 'ERR_CANCELED') {
+        setUploadQueue((current) => current.filter((item) => item.id !== id))
+      } else {
+        setUploadQueue((current) => current.map((item) => item.id === id ? { ...item, status: 'error', error: err.response?.data?.message || 'Upload failed' } : item))
+      }
     } finally {
-      setUploading(false)
-      e.target.value = ''
+      uploadControllers.current.delete(id)
+      setUploading(uploadControllers.current.size > 0)
     }
   }
 
-  const remove = async (id) => {
-    if (!confirm('Delete this file?')) return
-    await api.delete(`/media/${id}`)
-    if (assets?.[previewIndex]?.id === id) setPreviewIndex(null)
+  const cancelUpload = (id) => {
+    uploadControllers.current.get(id)?.abort()
+    uploadControllers.current.delete(id)
+    setUploadQueue((current) => {
+      const item = current.find((entry) => entry.id === id)
+      if (item?.localUrl) URL.revokeObjectURL(item.localUrl)
+      return current.filter((entry) => entry.id !== id)
+    })
+    setUploading(uploadControllers.current.size > 0)
+  }
+
+  const remove = async () => {
+    if (!confirmDelete) return
+    setDeleting(true)
+    await api.delete(`/media/${confirmDelete.id}`)
+    if (assets?.[previewIndex]?.id === confirmDelete.id) setPreviewIndex(null)
+    setConfirmDelete(null)
+    setDeleting(false)
     load()
   }
 
   const updateAsset = (updated) => {
     setAssets((current) => current.map((asset) => asset.id === updated.id ? updated : asset))
+    loadFolders()
+  }
+
+  const createFolder = async (event) => {
+    event.preventDefault()
+    if (!folderName.trim()) return
+    setFolderBusy(true)
+    try {
+      const { data } = await api.post('/media-folders', { name: folderName.trim() })
+      setFolders((current) => [...current, data.data])
+      setFolderName('')
+      setFolderOpen(false)
+      setActiveFolder(data.data.id)
+    } finally {
+      setFolderBusy(false)
+    }
   }
 
   if (!assets) return <PageLoader />
@@ -70,12 +160,16 @@ export default function Media() {
           <div className="relative flex-1 sm:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
-              className="pl-9"
+              className="pl-9 pr-9"
               placeholder="Search files…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            {search && <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Clear media search"><X className="h-3.5 w-3.5" /></button>}
           </div>
+          <Button variant="secondary" onClick={() => setFolderOpen(true)}>
+            <FolderPlus className="h-4 w-4" /> New folder
+          </Button>
           <Button onClick={() => fileRef.current?.click()} loading={uploading}>
             <Upload className="h-4 w-4" /> Upload files
           </Button>
@@ -83,7 +177,19 @@ export default function Media() {
         </div>
       </div>
 
-      {assets.length === 0 ? (
+      <Card className="p-3">
+        <div className="flex gap-2 overflow-x-auto">
+          <FolderChip label="All files" active={activeFolder === 'all'} count={folders.reduce((sum, folder) => sum + Number(folder.assets_count || 0), 0) || assets.length} onClick={() => setActiveFolder('all')} />
+          <FolderChip label="Unfiled" active={activeFolder === 'root'} onClick={() => setActiveFolder('root')} />
+          {folders.map((folder) => (
+            <FolderChip key={folder.id} label={folder.name} active={String(activeFolder) === String(folder.id)} count={folder.assets_count || 0} onClick={() => setActiveFolder(folder.id)} />
+          ))}
+        </div>
+      </Card>
+
+      {uploadQueue.length > 0 && <UploadQueue items={uploadQueue} onCancel={cancelUpload} />}
+
+      {assets.length === 0 && uploadQueue.length === 0 ? (
         <EmptyState
           icon={ImageIcon}
           title={search ? 'No matches' : 'No media yet'}
@@ -126,7 +232,7 @@ export default function Media() {
               </button>
               <button
                 type="button"
-                onClick={() => remove(m.id)}
+                onClick={() => setConfirmDelete(m)}
                 className="absolute right-2 top-2 rounded-lg bg-white/90 p-1.5 opacity-0 shadow transition group-hover:opacity-100 dark:bg-slate-900/90"
               >
                 <Trash2 className="h-3.5 w-3.5 text-rose-500" />
@@ -143,20 +249,56 @@ export default function Media() {
           onClose={() => setPreviewIndex(null)}
           onNext={() => setPreviewIndex((index) => (index + 1) % assets.length)}
           onPrevious={() => setPreviewIndex((index) => (index - 1 + assets.length) % assets.length)}
+          folders={folders}
           onSaved={updateAsset}
         />
       )}
+
+      <Modal open={folderOpen} title="Create folder" description="Organize images, videos, and files by campaign or client." onClose={() => setFolderOpen(false)} size="md">
+        <form onSubmit={createFolder} className="space-y-4 p-5">
+          <Input label="Folder name" value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="Campaign assets" required />
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <Button type="button" variant="ghost" onClick={() => setFolderOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={folderBusy}><FolderPlus className="h-4 w-4" /> Create folder</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(confirmDelete)}
+        title="Delete media file"
+        description={`Delete "${confirmDelete?.original_name || 'this file'}"? This removes it from the media library.`}
+        confirmLabel="Delete file"
+        loading={deleting}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={remove}
+      />
     </div>
   )
 }
 
-function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, onSaved }) {
+function FolderChip({ label, count, active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${active ? 'border-brand-500 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+    >
+      <FolderOpen className="h-4 w-4" />
+      {label}
+      {count !== undefined && <span className={`rounded-full px-1.5 text-[10px] ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>{count}</span>}
+    </button>
+  )
+}
+
+function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, folders, onSaved }) {
   const src = mediaUrl(asset.url)
-  const [form, setForm] = useState({ original_name: asset.original_name || '', alt_text: asset.alt_text || '' })
+  const [form, setForm] = useState({ original_name: asset.original_name || '', alt_text: asset.alt_text || '', folder_id: asset.folder_id || '' })
   const [saving, setSaving] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(true)
 
   useEffect(() => {
-    setForm({ original_name: asset.original_name || '', alt_text: asset.alt_text || '' })
+    setForm({ original_name: asset.original_name || '', alt_text: asset.alt_text || '', folder_id: asset.folder_id || '' })
   }, [asset])
 
   useEffect(() => {
@@ -175,7 +317,7 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, 
     event.preventDefault()
     setSaving(true)
     try {
-      const { data } = await api.put(`/media/${asset.id}`, form)
+      const { data } = await api.put(`/media/${asset.id}`, { ...form, folder_id: form.folder_id || null })
       onSaved(data.data)
     } catch (error) {
       alert(error.response?.data?.message || 'Could not update media details.')
@@ -185,23 +327,24 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div
-        className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          <div className="min-w-0 pr-4">
-            <p className="truncate font-semibold text-slate-900 dark:text-white">{asset.original_name}</p>
-            <p className="text-xs text-slate-500">{asset.mime_type}</p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-            <X className="h-5 w-5" />
+    <Modal
+      open={Boolean(asset)}
+      title={asset.original_name}
+      description={asset.mime_type}
+      onClose={onClose}
+      size="screen"
+      fullscreenable
+    >
+        <div className={detailsOpen ? 'grid min-h-0 flex-1 lg:grid-cols-[1.5fr_360px]' : 'grid min-h-0 flex-1'}>
+          <div className="relative flex max-h-[76vh] min-h-[360px] items-center justify-center overflow-auto bg-slate-950 p-4">
+          <button
+            type="button"
+            onClick={() => setDetailsOpen((value) => !value)}
+            className="absolute right-4 top-4 z-20 inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-lg transition hover:bg-white dark:bg-slate-800/90 dark:text-white dark:hover:bg-slate-700"
+          >
+            {detailsOpen ? 'Hide details' : 'Show details'}
+            {detailsOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
-        </div>
-
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[1.5fr_360px]">
-          <div className="relative flex max-h-[76vh] min-h-[280px] items-center justify-center overflow-auto bg-slate-950 p-4">
           {hasNavigation && (
             <>
               <button
@@ -249,7 +392,7 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, 
           )}
           </div>
 
-          <form onSubmit={save} className="flex max-h-[76vh] flex-col overflow-y-auto border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:border-l lg:border-t-0">
+          {detailsOpen && <form onSubmit={save} className="flex max-h-[76vh] flex-col overflow-y-auto border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:border-l lg:border-t-0">
             <div className="space-y-4 p-5">
               <div>
                 <h3 className="font-semibold text-slate-900 dark:text-white">Image details</h3>
@@ -258,6 +401,13 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, 
 
               <Input label="Image name" value={form.original_name} onChange={(event) => setForm({ ...form, original_name: event.target.value })} />
               <Input label="Alt tag" value={form.alt_text} onChange={(event) => setForm({ ...form, alt_text: event.target.value })} placeholder="Describe this image for accessibility" />
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Folder</span>
+                <select value={form.folder_id} onChange={(event) => setForm({ ...form, folder_id: event.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                  <option value="">Unfiled</option>
+                  {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+                </select>
+              </label>
 
               <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Image stats</p>
@@ -277,10 +427,48 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, 
               </Link>
               <Button type="submit" loading={saving}>Save details</Button>
             </div>
-          </form>
+          </form>}
         </div>
+    </Modal>
+  )
+}
+
+function UploadQueue({ items, onCancel }) {
+  return (
+    <Card className="overflow-hidden border-brand-200 bg-brand-50/40 p-4 dark:border-brand-900/50 dark:bg-brand-950/20">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <p className="font-semibold text-slate-900 dark:text-white">Uploading files</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Progress is shown in real time. You can cancel any active upload.</p>
+        </div>
+        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-brand-600 dark:bg-slate-900 dark:text-brand-300">{items.length}</span>
       </div>
-    </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {items.map((item) => (
+          <div key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="relative flex aspect-video items-center justify-center bg-slate-100 dark:bg-slate-800">
+              {item.localUrl && item.type === 'image' ? <img src={item.localUrl} alt="" className="h-full w-full object-cover" /> : item.localUrl && item.type === 'video' ? <video src={item.localUrl} className="h-full w-full object-cover" muted /> : <FileText className="h-8 w-8 text-slate-400" />}
+              {item.status === 'uploading' && <div className="absolute inset-0 flex items-center justify-center bg-black/35"><Loader2 className="h-7 w-7 animate-spin text-white" /></div>}
+            </div>
+            <div className="space-y-2 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{item.name}</p>
+                <button type="button" onClick={() => onCancel(item.id)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-500 dark:hover:bg-slate-800" aria-label={`Cancel ${item.name}`}>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                <div className={`h-full rounded-full ${item.status === 'error' ? 'bg-rose-500' : item.status === 'done' ? 'bg-emerald-500' : 'bg-brand-600'}`} style={{ width: `${item.progress}%` }} />
+              </div>
+              <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span>{item.status === 'done' ? 'Uploaded' : item.status === 'error' ? item.error : 'Uploading'}</span>
+                <span>{item.progress}%</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }
 

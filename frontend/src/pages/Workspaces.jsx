@@ -4,7 +4,7 @@ import { Building2, Check, Crown, Edit3, LayoutGrid, LogOut, Plus, Sparkles, Tab
 import clsx from 'clsx'
 import api, { workspaceStore } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import { Badge, Button, Card, Input, Modal } from '../components/ui'
+import { Badge, Button, Card, Input, Modal, ConfirmDialog } from '../components/ui'
 import { currentTimezone, timezones } from '../lib/timezones'
 
 export default function Workspaces() {
@@ -14,7 +14,7 @@ export default function Workspaces() {
   const [form, setForm] = useState({ name: '', timezone: currentTimezone() })
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
-  const [confirmAction, setConfirmAction] = useState('')
+  const [confirmAction, setConfirmAction] = useState(null)
 
   const changeView = (nextView) => {
     setView(nextView)
@@ -46,7 +46,9 @@ export default function Workspaces() {
     window.location.reload()
   }
 
-  const removeAccess = async (type) => {
+  const removeAccess = async () => {
+    const type = confirmAction?.type
+    if (!type) return
     setBusy(type)
     setMessage('')
     try {
@@ -59,7 +61,7 @@ export default function Workspaces() {
       setMessage(error.response?.data?.message || `Could not ${type} this workspace.`)
     } finally {
       setBusy('')
-      setConfirmAction('')
+      setConfirmAction(null)
     }
   }
 
@@ -100,7 +102,7 @@ export default function Workspaces() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {workspaces.map((workspace) => (
-            <WorkspaceCard key={workspace.id} workspace={workspace} activeWorkspace={activeWorkspace} busy={busy} activate={activate} confirmAction={confirmAction} setConfirmAction={setConfirmAction} removeAccess={removeAccess} />
+            <WorkspaceCard key={workspace.id} workspace={workspace} activeWorkspace={activeWorkspace} busy={busy} activate={activate} setConfirmAction={setConfirmAction} />
           ))}
         </div>
       )}
@@ -115,11 +117,21 @@ export default function Workspaces() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(confirmAction)}
+        title={confirmAction?.type === 'delete' ? 'Delete workspace' : 'Leave workspace'}
+        description={confirmAction?.type === 'delete' ? 'Delete this workspace and all of its content?' : 'Leave this workspace and lose access to its content?'}
+        confirmLabel={confirmAction?.type === 'delete' ? 'Delete workspace' : 'Leave workspace'}
+        loading={busy === confirmAction?.type}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={removeAccess}
+      />
     </div>
   )
 }
 
-function WorkspaceCard({ workspace, activeWorkspace, busy, activate, confirmAction, setConfirmAction, removeAccess }) {
+function WorkspaceCard({ workspace, activeWorkspace, busy, activate, setConfirmAction }) {
   const active = workspace.slug === activeWorkspace?.slug
   const owner = workspace.role === 'owner'
 
@@ -138,24 +150,12 @@ function WorkspaceCard({ workspace, activeWorkspace, busy, activate, confirmActi
         {!active && <Button size="sm" onClick={() => activate(workspace)} loading={busy === `switch-${workspace.id}`}><Check className="h-4 w-4" /> Switch</Button>}
         <Link to={`/app/workspaces/${workspace.id}`}><Button size="sm" variant="secondary"><Edit3 className="h-4 w-4" /> Edit</Button></Link>
         {active && (
-          <Button size="sm" variant="ghost" className="ml-auto text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setConfirmAction(owner ? 'delete' : 'leave')}>
+          <Button size="sm" variant="ghost" className="ml-auto text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setConfirmAction({ type: owner ? 'delete' : 'leave', workspace })}>
             {owner ? <Trash2 className="h-4 w-4" /> : <LogOut className="h-4 w-4" />}
             {owner ? 'Delete' : 'Leave'}
           </Button>
         )}
       </div>
-
-      {active && confirmAction && (
-        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/30">
-          <p className="text-sm font-medium text-rose-700 dark:text-rose-300">
-            {confirmAction === 'delete' ? 'Delete this workspace and all of its content?' : 'Leave this workspace and lose access to its content?'}
-          </p>
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" variant="danger" loading={busy === confirmAction} onClick={() => removeAccess(confirmAction)}>Confirm</Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmAction('')}>Cancel</Button>
-          </div>
-        </div>
-      )}
     </Card>
   )
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight, BarChart3, BellRing, Bot, CalendarDays, Check, CheckCircle2,
-  ChevronRight, Clock3, FileCheck2, Gauge, Image as ImageIcon,
+  Building2, ChevronRight, Clock3, FileCheck2, Gauge, Image as ImageIcon,
   Layers3, LogOut, Menu, Play, Send, ShieldCheck,
   Sparkles, Users, WandSparkles, Workflow, X, Zap,
 } from 'lucide-react'
@@ -119,8 +119,9 @@ const FALLBACK_PLANS = [
 ]
 
 export default function Landing() {
-  const { user, logout } = useAuth()
+  const { user, activeWorkspace, logout } = useAuth()
   const [plans, setPlans] = useState([])
+  const [settings, setSettings] = useState(null)
   const [yearly, setYearly] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
@@ -130,6 +131,14 @@ export default function Landing() {
 
   useEffect(() => {
     document.title = 'Postflow - Plan, publish and grow everywhere'
+    api
+      .get('/public/settings')
+      .then(({ data }) => {
+        setSettings(data)
+        const name = data?.general?.site_name || data?.platform_name || 'Postflow'
+        document.title = data?.seo?.meta_title || `${name} - Plan, publish and grow everywhere`
+      })
+      .catch(() => {})
     api
       .get('/plans')
       .then(({ data }) => setPlans(Array.isArray(data.data) && data.data.length ? data.data : FALLBACK_PLANS))
@@ -174,6 +183,13 @@ export default function Landing() {
   const displayedPlans = plans.length ? plans : FALLBACK_PLANS
   const primaryHref = user ? '/app' : '/register'
   const primaryLabel = user ? 'Open dashboard' : 'Start for free'
+  const brandName = settings?.general?.site_name || settings?.platform_name || 'Postflow'
+  const logoUrl = settings?.general?.logo_url
+  const navigationItems = menuItemsFromSettings(settings?.main_menu?.items) || NAV_ITEMS
+  const workspaceName = activeWorkspace?.name || 'Workspace'
+  const currentPlanName = activeWorkspace?.subscription?.plan?.name || activeWorkspace?.subscription?.plan_name || (user ? 'Free' : '')
+  const planRenewDate = activeWorkspace?.subscription?.renews_at || activeWorkspace?.subscription?.ends_at || activeWorkspace?.subscription?.trial_ends_at
+  const normalizePlan = (value) => String(value || '').trim().toLowerCase()
   const handleLogout = async () => {
     await logout()
     setAccountOpen(false)
@@ -196,15 +212,15 @@ export default function Landing() {
             >
               {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
-            <Link to="/" className="flex items-center gap-2.5" aria-label="Postflow home">
-              <LogoMark />
-              <span className="text-lg font-extrabold tracking-[-0.035em]">Postflow</span>
+            <Link to="/" className="flex items-center gap-2.5" aria-label={`${brandName} home`}>
+              <LogoMark logoUrl={logoUrl} />
+              <span className="text-lg font-extrabold tracking-[-0.035em]">{brandName}</span>
             </Link>
           </div>
 
           <nav className="hidden items-center gap-7 text-sm font-semibold text-slate-600 dark:text-slate-300 lg:flex">
-            {NAV_ITEMS.map((item) => (
-              <DesktopNavItem key={item.href} item={item} />
+            {navigationItems.map((item) => (
+              <DesktopNavItem key={`${item.label}-${item.href}`} item={item} />
             ))}
           </nav>
 
@@ -224,17 +240,22 @@ export default function Landing() {
                   ) : (
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-black uppercase text-white">{user.name?.[0] || 'U'}</span>
                   )}
+                  <span className="hidden max-w-28 truncate text-sm font-bold text-slate-700 dark:text-slate-200 md:block">{user.name}</span>
                   <ChevronRight className={`hidden h-4 w-4 text-slate-400 transition sm:block ${accountOpen ? 'rotate-90' : ''}`} />
                 </button>
                 {accountOpen && (
-                  <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-slate-900/10 bg-white p-1.5 shadow-2xl shadow-slate-900/15 dark:border-white/10 dark:bg-slate-900" role="menu">
+                  <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-slate-900/10 bg-white p-1.5 shadow-2xl shadow-slate-900/15 dark:border-white/10 dark:bg-slate-900" role="menu">
                     <div className="px-3 py-2">
                       <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{user.name}</p>
                       <p className="truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
+                      <p className="mt-2 flex items-center gap-1.5 truncate text-xs font-semibold text-indigo-600 dark:text-indigo-300" title={workspaceName}>
+                        <Building2 className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{workspaceName}</span>
+                      </p>
                     </div>
                     <div className="my-1 border-t border-slate-100 dark:border-white/10" />
                     <Link to="/app" className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5" role="menuitem">
-                      Dashboard
+                      <Gauge className="h-4 w-4" /> Dashboard
                     </Link>
                     <button type="button" onClick={handleLogout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" role="menuitem">
                       <LogOut className="h-4 w-4" /> Logout
@@ -253,8 +274,8 @@ export default function Landing() {
         {mobileOpen && (
           <div className="border-t border-slate-900/5 bg-[#f8f7f3] px-5 py-5 dark:border-white/10 dark:bg-[#080b12] lg:hidden">
             <nav className="flex flex-col gap-1">
-              {NAV_ITEMS.map((item) => (
-                <div key={item.href}>
+              {navigationItems.map((item) => (
+                <div key={`${item.label}-${item.href}`}>
                   <a href={item.href} onClick={() => setMobileOpen(false)} className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold hover:bg-slate-900/5 dark:hover:bg-white/5">
                     {item.label} {item.items && <ChevronRight className="h-4 w-4 text-slate-400" />}
                   </a>
@@ -474,10 +495,12 @@ export default function Landing() {
               {displayedPlans.map((plan, index) => {
                 const rawPrice = yearly ? plan.price_yearly : plan.price_monthly
                 const price = yearly && rawPrice > 0 ? Math.round((rawPrice / 12) * 100) / 100 : rawPrice
+                const isCurrent = Boolean(user && currentPlanName && normalizePlan(plan.name) === normalizePlan(currentPlanName))
                 return (
-                  <article key={plan.id} data-reveal style={{ '--reveal-delay': `${index * 60}ms` }} className={`landing-reveal relative flex flex-col rounded-[1.5rem] border p-6 ${plan.is_featured ? 'border-indigo-500 bg-slate-950 text-white shadow-xl shadow-indigo-500/10' : 'border-slate-900/10 bg-white dark:border-white/10 dark:bg-white/[0.045]'}`}>
+                  <article key={plan.id} data-reveal style={{ '--reveal-delay': `${index * 60}ms` }} className={`landing-reveal relative flex flex-col rounded-[1.5rem] border p-6 ${plan.is_featured ? 'border-indigo-500 bg-slate-950 text-white shadow-xl shadow-indigo-500/10' : 'border-slate-900/10 bg-white dark:border-white/10 dark:bg-white/[0.045]'} ${isCurrent ? 'ring-2 ring-emerald-400/80' : ''}`}>
                     {plan.is_featured && <span className="absolute right-5 top-5 rounded-full bg-indigo-400/20 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-indigo-200">Most popular</span>}
-                    <h3 className="text-xl font-black">{plan.name}</h3>
+                    {isCurrent && <span className="absolute left-5 top-5 rounded-full bg-emerald-500 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white">Current plan</span>}
+                    <h3 className={`text-xl font-black ${isCurrent ? 'mt-7' : ''}`}>{plan.name}</h3>
                     <p className={`mt-2 min-h-11 text-sm leading-6 ${plan.is_featured ? 'text-slate-300' : 'text-slate-500 dark:text-slate-400'}`}>{plan.description}</p>
                     <div className="mt-7 flex items-end gap-1">
                       <span className="text-4xl font-black tracking-[-0.06em]">${price}</span>
@@ -490,9 +513,10 @@ export default function Landing() {
                         <li key={feature} className={`flex items-start gap-2.5 ${plan.is_featured ? 'text-slate-200' : 'text-slate-600 dark:text-slate-300'}`}><Check className={`mt-0.5 h-4 w-4 shrink-0 ${plan.is_featured ? 'text-indigo-300' : 'text-emerald-500'}`} /> {feature}</li>
                       ))}
                     </ul>
-                    <Link to="/register" className={`mt-8 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${plan.is_featured ? 'bg-white text-slate-950 hover:bg-indigo-50' : 'border border-slate-900/15 hover:bg-slate-950 hover:text-white dark:border-white/15 dark:hover:bg-white dark:hover:text-slate-950'}`}>
-                      {Number(plan.price_monthly) === 0 ? 'Get started' : 'Start free trial'} <ArrowRight className="h-4 w-4" />
+                    <Link to={user ? '/app/pricing-plan' : '/register'} className={`mt-8 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${isCurrent ? 'bg-emerald-500 text-white hover:bg-emerald-600' : plan.is_featured ? 'bg-white text-slate-950 hover:bg-indigo-50' : 'border border-slate-900/15 hover:bg-slate-950 hover:text-white dark:border-white/15 dark:hover:bg-white dark:hover:text-slate-950'}`}>
+                      {isCurrent ? 'Current plan' : user ? 'Manage plan' : Number(plan.price_monthly) === 0 ? 'Get started' : 'Start free trial'} <ArrowRight className="h-4 w-4" />
                     </Link>
+                    {isCurrent && planRenewDate && <p className={`mt-2 text-center text-[11px] ${plan.is_featured ? 'text-slate-400' : 'text-slate-500 dark:text-slate-400'}`}>Renews {new Date(planRenewDate).toLocaleDateString()}</p>}
                   </article>
                 )
               })}
@@ -540,7 +564,7 @@ export default function Landing() {
       <footer className="mx-auto max-w-7xl px-5 pb-8 pt-12 lg:px-8">
         <div className="grid gap-10 border-b border-slate-900/10 pb-12 dark:border-white/10 md:grid-cols-2 lg:grid-cols-5">
           <div className="lg:col-span-2">
-            <div className="flex items-center gap-2.5"><LogoMark /><span className="text-lg font-black tracking-[-0.04em]">Postflow</span></div>
+            <div className="flex items-center gap-2.5"><LogoMark logoUrl={logoUrl} /><span className="text-lg font-black tracking-[-0.04em]">{brandName}</span></div>
             <p className="mt-4 max-w-sm leading-7 text-slate-500 dark:text-slate-400">A focused social media workspace for planning, publishing, automation and team collaboration.</p>
           </div>
           {[
@@ -557,7 +581,7 @@ export default function Landing() {
           ))}
         </div>
         <div className="flex flex-col gap-3 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} Postflow. Social publishing, in one flow.</p>
+          <p>© {new Date().getFullYear()} {brandName}. Social publishing, in one flow.</p>
           <div className="flex gap-5"><span>Privacy</span><span>Terms</span><span>Security</span></div>
         </div>
       </footer>
@@ -578,7 +602,15 @@ export default function Landing() {
   )
 }
 
-function LogoMark() {
+function LogoMark({ logoUrl }) {
+  if (logoUrl) {
+    return (
+      <span className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white text-white shadow-lg shadow-indigo-500/20 ring-1 ring-slate-900/10 dark:ring-white/10">
+        <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" />
+      </span>
+    )
+  }
+
   return (
     <span className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-slate-950 text-white shadow-lg shadow-indigo-500/20 dark:bg-white dark:text-slate-950">
       <span className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-indigo-500" />
@@ -597,6 +629,33 @@ function SectionHeading({ eyebrow, title, body }) {
   )
 }
 
+function menuItemsFromSettings(items) {
+  if (!Array.isArray(items) || items.length === 0) return null
+
+  const childrenByParent = items.reduce((map, item) => {
+    const parent = item.parent || ''
+    map[parent] = [...(map[parent] || []), item]
+    return map
+  }, {})
+
+  const topLevel = childrenByParent[''] || []
+  if (topLevel.length === 0) return null
+
+  return topLevel.map((item) => {
+    const children = childrenByParent[item.id] || []
+    return {
+      label: item.label || 'Menu item',
+      href: item.url || '#',
+      type: item.type === 'mega' ? 'mega' : undefined,
+      items: children.length ? children.map((child) => [
+        child.label || 'Menu item',
+        child.description || `Open ${child.label || 'this page'}.`,
+        child.url || '#',
+      ]) : undefined,
+    }
+  })
+}
+
 function DesktopNavItem({ item }) {
   if (!item.items) {
     return <a href={item.href} className="transition hover:text-slate-950 dark:hover:text-white">{item.label}</a>
@@ -608,11 +667,11 @@ function DesktopNavItem({ item }) {
         {item.label}
         <ChevronRight className="h-3.5 w-3.5 rotate-90 text-slate-400 transition group-hover:text-slate-700 dark:group-hover:text-slate-200" />
       </a>
-      <div className={`invisible absolute top-full z-50 pt-5 opacity-0 transition duration-200 group-hover:visible group-hover:opacity-100 ${item.type === 'mega' ? 'left-1/2 w-[520px] -translate-x-1/2' : 'left-0 w-72'}`}>
+      <div className={`pointer-events-none invisible absolute top-full z-50 translate-y-2 pt-5 opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 ${item.type === 'mega' ? 'left-1/2 w-[520px] -translate-x-1/2 group-hover:-translate-x-1/2' : 'left-0 w-72'}`}>
         <div className="overflow-hidden rounded-2xl border border-slate-900/10 bg-white/95 p-2 shadow-2xl shadow-slate-900/15 backdrop-blur dark:border-white/10 dark:bg-slate-900/95">
           <div className={item.type === 'mega' ? 'grid grid-cols-2 gap-1' : 'space-y-1'}>
             {item.items.map(([label, description, href]) => (
-              <a key={label} href={href} className="rounded-xl p-3 transition hover:bg-slate-100 dark:hover:bg-white/5">
+              <a key={label} href={href} className="block rounded-xl border-b border-slate-900/5 p-3 transition last:border-b-0 hover:bg-slate-100 dark:border-white/5 dark:hover:bg-white/5">
                 <span className="text-sm font-bold text-slate-900 dark:text-white">{label}</span>
                 <span className="mt-1 block text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">{description}</span>
               </a>

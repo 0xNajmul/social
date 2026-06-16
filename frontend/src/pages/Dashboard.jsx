@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null)
   const [range, setRange] = useState('month')
   const [custom, setCustom] = useState({ from: '', to: '' })
+  const [draftCustom, setDraftCustom] = useState({ from: '', to: '' })
   const [customOpen, setCustomOpen] = useState(false)
 
   useEffect(() => {
@@ -52,8 +53,13 @@ export default function Dashboard() {
                 key={key}
                 type="button"
                 onClick={() => {
+                  if (key === 'custom') {
+                    setDraftCustom(custom)
+                    setCustomOpen((value) => !value)
+                    return
+                  }
                   setRange(key)
-                  setCustomOpen(key === 'custom' ? (value) => !value : false)
+                  setCustomOpen(false)
                 }}
                 className={clsx(
                   'whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition',
@@ -70,9 +76,19 @@ export default function Dashboard() {
                 <CalendarDays className="h-4 w-4 text-brand-500" /> Choose custom dates
               </div>
               <div className="grid gap-3">
-                <DateTimeField label="From" type="date" value={custom.from} onChange={(event) => setCustom({ ...custom, from: event.target.value })} />
-                <DateTimeField label="To" type="date" value={custom.to} onChange={(event) => setCustom({ ...custom, to: event.target.value })} />
-                <Button type="button" size="sm" onClick={() => setCustomOpen(false)}>Apply dates</Button>
+                <DateTimeField label="From" type="date" value={draftCustom.from} onChange={(event) => setDraftCustom({ ...draftCustom, from: event.target.value })} />
+                <DateTimeField label="To" type="date" value={draftCustom.to} onChange={(event) => setDraftCustom({ ...draftCustom, to: event.target.value })} />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    setCustom(draftCustom)
+                    setRange('custom')
+                    setCustomOpen(false)
+                  }}
+                >
+                  Apply dates
+                </Button>
               </div>
             </div>
           )}

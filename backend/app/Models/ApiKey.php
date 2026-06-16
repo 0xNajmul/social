@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 class ApiKey extends Model
 {
     protected $fillable = [
-        'workspace_id', 'created_by', 'name', 'prefix', 'key_hash',
+        'workspace_id', 'created_by', 'name', 'prefix', 'last_four', 'key_hash',
         'scopes', 'last_used_at', 'expires_at', 'revoked_at',
     ];
 
@@ -40,6 +40,7 @@ class ApiKey extends Model
             'created_by' => $userId,
             'name' => $name,
             'prefix' => substr($secret, 0, 12),
+            'last_four' => substr($secret, -4),
             'key_hash' => Hash::make($secret),
         ]);
 

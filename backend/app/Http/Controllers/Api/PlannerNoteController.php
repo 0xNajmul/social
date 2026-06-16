@@ -45,6 +45,11 @@ class PlannerNoteController extends Controller
             'content_html' => ['required', 'string', 'max:50000'],
             'ai_prompt' => ['nullable', 'string', 'max:1000'],
             'scheduled_at' => ['nullable', 'date'],
+            'categories' => ['nullable', 'array'],
+            'categories.*' => ['string', 'max:80'],
+            'tags' => ['nullable', 'array'],
+            'tags.*' => ['string', 'max:80'],
+            'status' => ['nullable', 'string', 'max:50'],
         ]);
 
         $contentText = trim(html_entity_decode(strip_tags($data['content_html'])));
@@ -55,10 +60,12 @@ class PlannerNoteController extends Controller
             'title' => $data['title'],
             'content_html' => $data['content_html'],
             'content_text' => Str::limit($contentText, 12000, ''),
-            'status' => 'note',
+            'status' => $data['status'] ?? 'note',
             'meta' => array_filter([
                 'ai_prompt' => $data['ai_prompt'] ?? null,
                 'scheduled_at' => $data['scheduled_at'] ?? null,
+                'categories' => $data['categories'] ?? null,
+                'tags' => $data['tags'] ?? null,
             ]),
         ]);
 
@@ -76,6 +83,11 @@ class PlannerNoteController extends Controller
             'content_html' => ['required', 'string', 'max:50000'],
             'ai_prompt' => ['nullable', 'string', 'max:1000'],
             'scheduled_at' => ['nullable', 'date'],
+            'categories' => ['nullable', 'array'],
+            'categories.*' => ['string', 'max:80'],
+            'tags' => ['nullable', 'array'],
+            'tags.*' => ['string', 'max:80'],
+            'status' => ['nullable', 'string', 'max:50'],
         ]);
 
         $contentText = trim(html_entity_decode(strip_tags($data['content_html'])));
@@ -84,9 +96,12 @@ class PlannerNoteController extends Controller
             'title' => $data['title'],
             'content_html' => $data['content_html'],
             'content_text' => Str::limit($contentText, 12000, ''),
+            'status' => $data['status'] ?? $plannerNote->status,
             'meta' => array_filter([
                 'ai_prompt' => $data['ai_prompt'] ?? null,
                 'scheduled_at' => $data['scheduled_at'] ?? null,
+                'categories' => $data['categories'] ?? null,
+                'tags' => $data['tags'] ?? null,
             ]),
         ]);
 

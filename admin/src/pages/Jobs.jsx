@@ -35,20 +35,21 @@ export default function Jobs() {
           <h1 className="text-2xl font-bold text-white">Jobs &amp; Queue</h1>
           <p className="mt-1 text-sm text-slate-400">Monitor scheduled posts, failed publishing attempts and failed queue jobs.</p>
         </div>
-        <Button variant="secondary" onClick={retry}><RefreshCw className="h-4 w-4" /> Retry all failed jobs</Button>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto">
-        {TABS.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => setTab(item.key)}
-            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${tab === item.key ? 'border-brand-500 bg-brand-600 text-white' : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'}`}
-          >
-            {item.label} <span className="ml-1 text-xs opacity-70">{counts[item.key]}</span>
-          </button>
-        ))}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex gap-2 overflow-x-auto">
+            {TABS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setTab(item.key)}
+                className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${tab === item.key ? 'border-brand-500 bg-brand-600 text-white' : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'}`}
+              >
+                {item.label} <span className="ml-1 opacity-70">{counts[item.key]}</span>
+              </button>
+            ))}
+          </div>
+          <Button variant="secondary" onClick={retry}><RefreshCw className="h-4 w-4" /> Retry</Button>
+        </div>
       </div>
 
       <Card className="overflow-hidden">

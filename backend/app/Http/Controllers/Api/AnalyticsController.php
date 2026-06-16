@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AnalyticsSnapshot;
+use App\Models\Post;
 use App\Models\PublishedPost;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AnalyticsController extends Controller
 {
@@ -16,9 +19,11 @@ class AnalyticsController extends Controller
         $workspace = workspace();
         $from = $request->date('from') ?? now()->subDays(30);
         $to = $request->date('to') ?? now();
+        $accountId = $request->integer('account_id') ?: null;
 
         $published = PublishedPost::where('workspace_id', $workspace->id)
             ->whereBetween('published_at', [$from, $to]);
+        $this->filterPublishedByAccount($published, $accountId);
 
         $totals = (clone $published)->selectRaw(
             'COUNT(*) as posts, SUM(likes) as likes, SUM(comments) as comments, '.
@@ -26,6 +31,7 @@ class AnalyticsController extends Controller
         )->first();
 
         $failed = $workspace->posts()->where('status', 'failed')
+            ->when($accountId, fn ($query) => $query->whereHas('variants', fn ($variant) => $variant->where('social_account_id', $accountId)))
             ->whereBetween('updated_at', [$from, $to])->count();
 
         return response()->json([
@@ -42,17 +48,23 @@ class AnalyticsController extends Controller
                     ? round(($totals->likes + $totals->comments + $totals->shares) / $totals->impressions * 100, 2)
                     : 0,
             ],
-            'by_platform' => $this->byPlatform($workspace->id, $from, $to),
-            'timeseries' => $this->timeseries($workspace->id, $from, $to),
-            'top_posts' => $this->topPosts($workspace->id, $from, $to),
-            'account_growth' => $this->accountGrowth($workspace->id, $from, $to),
+            'by_platform' => $this->byPlatform($workspace->id, $from, $to, $accountId),
+            'timeseries' => $this->timeseries($workspace->id, $from, $to, $accountId),
+            'top_posts' => $this->performancePosts($workspace->id, $from, $to, $accountId, 'top'),
+            'latest_posts' => $this->latestPosts($workspace->id, $from, $to, $accountId),
+            'worst_posts' => $this->performancePosts($workspace->id, $from, $to, $accountId, 'worst'),
+            'upcoming_posts' => $this->upcomingPosts($workspace->id, $accountId),
+            'account_growth' => $this->accountGrowth($workspace->id, $from, $to, $accountId),
         ]);
     }
 
-    protected function byPlatform(int $workspaceId, $from, $to): array
+    protected function byPlatform(int $workspaceId, $from, $to, ?int $accountId = null): array
     {
-        return PublishedPost::where('workspace_id', $workspaceId)
-            ->whereBetween('published_at', [$from, $to])
+        $query = PublishedPost::where('workspace_id', $workspaceId)
+            ->whereBetween('published_at', [$from, $to]);
+        $this->filterPublishedByAccount($query, $accountId);
+
+        return $query
             ->groupBy('platform')
             ->selectRaw('platform, COUNT(*) as posts, SUM(likes+comments+shares) as engagement, SUM(impressions) as impressions')
             ->get()
@@ -64,10 +76,13 @@ class AnalyticsController extends Controller
             ])->all();
     }
 
-    protected function timeseries(int $workspaceId, $from, $to): array
+    protected function timeseries(int $workspaceId, $from, $to, ?int $accountId = null): array
     {
-        return AnalyticsSnapshot::where('workspace_id', $workspaceId)
-            ->whereBetween('date', [$from, $to])
+        $query = AnalyticsSnapshot::where('workspace_id', $workspaceId)
+            ->whereBetween('date', [$from, $to]);
+        $this->filterSnapshotsByAccount($query, $accountId);
+
+        return $query
             ->groupBy('date')
             ->orderBy('date')
             ->selectRaw('date, SUM(likes) as likes, SUM(comments) as comments, SUM(shares) as shares, SUM(impressions) as impressions, SUM(posts_published) as posts')
@@ -82,34 +97,111 @@ class AnalyticsController extends Controller
             ])->all();
     }
 
-    protected function topPosts(int $workspaceId, $from, $to): array
+    protected function latestPosts(int $workspaceId, $from, $to, ?int $accountId = null): array
     {
-        return PublishedPost::with('variant.post')
+        $query = PublishedPost::with('variant.post')
             ->where('workspace_id', $workspaceId)
-            ->whereBetween('published_at', [$from, $to])
-            ->orderByRaw('(likes + comments + shares) DESC')
+            ->whereBetween('published_at', [$from, $to]);
+        $this->filterPublishedByAccount($query, $accountId);
+
+        return $query
+            ->latest('published_at')
             ->limit(5)
             ->get()
-            ->map(fn ($p) => [
-                'id' => $p->id,
-                'platform' => $p->platform,
-                'permalink' => $p->permalink,
-                'content' => \Illuminate\Support\Str::limit($p->variant?->effectiveContent() ?? '', 120),
-                'likes' => $p->likes,
-                'comments' => $p->comments,
-                'shares' => $p->shares,
-                'engagement' => $p->totalEngagement(),
-            ])->all();
+            ->map(fn ($post) => $this->serializePublishedPost($post))
+            ->all();
     }
 
-    protected function accountGrowth(int $workspaceId, $from, $to): array
+    protected function performancePosts(int $workspaceId, $from, $to, ?int $accountId = null, string $direction = 'top'): array
     {
-        return AnalyticsSnapshot::where('workspace_id', $workspaceId)
-            ->whereBetween('date', [$from, $to])
+        $query = PublishedPost::with('variant.post')
+            ->where('workspace_id', $workspaceId)
+            ->whereBetween('published_at', [$from, $to]);
+        $this->filterPublishedByAccount($query, $accountId);
+
+        return $query
+            ->orderByRaw('(likes + comments + shares + clicks) '.($direction === 'worst' ? 'ASC' : 'DESC'))
+            ->limit(5)
+            ->get()
+            ->map(fn ($post) => $this->serializePublishedPost($post))
+            ->all();
+    }
+
+    protected function upcomingPosts(int $workspaceId, ?int $accountId = null): array
+    {
+        return Post::with('variants.socialAccount')
+            ->where('workspace_id', $workspaceId)
+            ->whereNotNull('scheduled_at')
+            ->where('scheduled_at', '>=', now()->subDay())
+            ->when($accountId, fn ($query) => $query->whereHas('variants', fn ($variant) => $variant->where('social_account_id', $accountId)))
+            ->orderBy('scheduled_at')
+            ->limit(5)
+            ->get()
+            ->map(function (Post $post) use ($accountId) {
+                $variant = $accountId
+                    ? $post->variants->firstWhere('social_account_id', $accountId)
+                    : $post->variants->first();
+
+                return [
+                    'id' => $post->id,
+                    'platform' => $variant?->platform,
+                    'permalink' => null,
+                    'content' => Str::limit($variant?->effectiveContent() ?? $post->content ?? '', 120),
+                    'likes' => 0,
+                    'comments' => 0,
+                    'shares' => 0,
+                    'impressions' => 0,
+                    'engagement' => 0,
+                    'published_at' => null,
+                    'scheduled_at' => $post->scheduled_at,
+                    'status' => $post->status->value,
+                ];
+            })->all();
+    }
+
+    protected function accountGrowth(int $workspaceId, $from, $to, ?int $accountId = null): array
+    {
+        $query = AnalyticsSnapshot::where('workspace_id', $workspaceId)
+            ->whereBetween('date', [$from, $to]);
+        $this->filterSnapshotsByAccount($query, $accountId);
+
+        return $query
             ->groupBy('platform')
             ->selectRaw('platform, SUM(followers_delta) as growth')
             ->get()
             ->map(fn ($r) => ['platform' => $r->platform, 'growth' => (int) $r->growth])
             ->all();
+    }
+
+    protected function serializePublishedPost(PublishedPost $post): array
+    {
+        return [
+            'id' => $post->id,
+            'platform' => $post->platform,
+            'permalink' => $post->permalink,
+            'content' => Str::limit($post->variant?->effectiveContent() ?? '', 120),
+            'likes' => (int) $post->likes,
+            'comments' => (int) $post->comments,
+            'shares' => (int) $post->shares,
+            'impressions' => (int) $post->impressions,
+            'engagement' => $post->totalEngagement(),
+            'published_at' => $post->published_at,
+            'scheduled_at' => null,
+            'status' => 'published',
+        ];
+    }
+
+    protected function filterPublishedByAccount(Builder $query, ?int $accountId): void
+    {
+        if ($accountId) {
+            $query->where('social_account_id', $accountId);
+        }
+    }
+
+    protected function filterSnapshotsByAccount(Builder $query, ?int $accountId): void
+    {
+        if ($accountId) {
+            $query->where('social_account_id', $accountId);
+        }
     }
 }

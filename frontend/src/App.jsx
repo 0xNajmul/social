@@ -25,6 +25,7 @@ const Organizer = lazy(() => import('./pages/Organizer'))
 const Workspaces = lazy(() => import('./pages/Workspaces'))
 const WorkspaceEdit = lazy(() => import('./pages/WorkspaceEdit'))
 const InviteEarn = lazy(() => import('./pages/InviteEarn'))
+const Notifications = lazy(() => import('./pages/Notifications'))
 const AuthTokenLanding = lazy(() => import('./pages/AuthTokenLanding'))
 const InvitationAccept = lazy(() => import('./pages/InvitationAccept'))
 
@@ -76,6 +77,7 @@ export default function App() {
               <Route path="settings" element={<Settings />} />
               <Route path="developer" element={<Developer />} />
               <Route path="profile" element={<Profile />} />
+              <Route path="notifications" element={<Notifications />} />
               <Route path="invite" element={<InviteEarn />} />
             </Route>
 

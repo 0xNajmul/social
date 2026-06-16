@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Clock3, Crown, Mail, RefreshCw, Search, ShieldCheck, Trash2, UserPlus, Users, X } from 'lucide-react'
 import api from '../lib/api'
-import { Badge, Button, Card, Input, PageLoader } from '../components/ui'
+import { Badge, Button, Card, Input, PageLoader, ConfirmDialog } from '../components/ui'
 
 const ROLE_DETAILS = {
   owner: { label: 'Owner', color: 'amber' },
@@ -16,9 +16,11 @@ export default function Team() {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('editor')
   const [search, setSearch] = useState('')
+  const [invitationSearch, setInvitationSearch] = useState('')
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState(null)
   const [confirmRemove, setConfirmRemove] = useState(null)
+  const [confirmInvitation, setConfirmInvitation] = useState(null)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [tab, setTab] = useState('members')
 
@@ -29,6 +31,11 @@ export default function Team() {
     const query = search.trim().toLowerCase()
     return (data?.members || []).filter((member) => !query || `${member.name} ${member.email} ${member.role}`.toLowerCase().includes(query))
   }, [data, search])
+
+  const filteredInvitations = useMemo(() => {
+    const query = invitationSearch.trim().toLowerCase()
+    return (data?.invitations || []).filter((invitation) => !query || `${invitation.email} ${invitation.role} ${invitation.invited_by || ''}`.toLowerCase().includes(query))
+  }, [data, invitationSearch])
 
   const notify = (type, text) => setMessage({ type, text })
 
@@ -63,7 +70,9 @@ export default function Team() {
     }
   }
 
-  const removeMember = async (member) => {
+  const removeMember = async () => {
+    const member = confirmRemove
+    if (!member) return
     setBusy(`remove-${member.id}`)
     try {
       await api.delete(`/team/${member.id}`)
@@ -91,6 +100,12 @@ export default function Team() {
     }
   }
 
+  const cancelInvitation = async () => {
+    if (!confirmInvitation) return
+    await invitationAction(confirmInvitation, 'cancel')
+    setConfirmInvitation(null)
+  }
+
   if (!data) return <PageLoader />
 
   const invitations = data.invitations || []
@@ -107,7 +122,6 @@ export default function Team() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Invite collaborators and give each person the access they need.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge color={ROLE_DETAILS[data.current_role]?.color || 'slate'}>Your role: {ROLE_DETAILS[data.current_role]?.label || data.current_role}</Badge>
           {canManage && <Button onClick={() => setInviteOpen(true)}><UserPlus className="h-4 w-4" /> Invite member</Button>}
         </div>
       </div>
@@ -136,15 +150,23 @@ export default function Team() {
           {tab === 'members' && (
             <div className="relative w-full lg:w-80">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search members..." className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search members..." className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+              {search && <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Clear member search"><X className="h-3.5 w-3.5" /></button>}
+            </div>
+          )}
+          {tab === 'invitations' && (
+            <div className="relative w-full lg:w-80">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input value={invitationSearch} onChange={(event) => setInvitationSearch(event.target.value)} placeholder="Search invitations..." className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+              {invitationSearch && <button type="button" onClick={() => setInvitationSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Clear invitation search"><X className="h-3.5 w-3.5" /></button>}
             </div>
           )}
         </div>
 
         {tab === 'members' ? (
-          <MembersTable members={members} currentUserId={data.current_user_id} canManage={canManage} isOwner={isOwner} assignableRoles={assignableRoles} busy={busy} confirmRemove={confirmRemove} setConfirmRemove={setConfirmRemove} updateRole={updateRole} removeMember={removeMember} />
+          <MembersTable members={members} currentUserId={data.current_user_id} canManage={canManage} isOwner={isOwner} assignableRoles={assignableRoles} busy={busy} setConfirmRemove={setConfirmRemove} updateRole={updateRole} />
         ) : (
-          <InvitationsTable invitations={invitations} canManage={canManage} busy={busy} invitationAction={invitationAction} />
+          <InvitationsTable invitations={filteredInvitations} canManage={canManage} busy={busy} invitationAction={invitationAction} setConfirmInvitation={setConfirmInvitation} />
         )}
       </Card>
 
@@ -155,10 +177,10 @@ export default function Team() {
               <div><h2 className="font-semibold text-slate-900 dark:text-white">Invite team member</h2><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">They will receive an email invitation valid for seven days.</p></div>
               <button type="button" onClick={() => setInviteOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button>
             </div>
-            <form onSubmit={invite} className="grid gap-4 p-5 sm:grid-cols-[1fr_180px]">
+            <form onSubmit={invite} className="space-y-4 p-5">
               <Input label="Email address" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="teammate@company.com" required />
               <RoleSelect label="Role" value={role} roles={assignableRoles} onChange={setRole} />
-              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800 sm:col-span-2">
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
                 <Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancel</Button>
                 <Button type="submit" loading={busy === 'invite'}><Mail className="h-4 w-4" /> Send invite</Button>
               </div>
@@ -166,11 +188,31 @@ export default function Team() {
           </Card>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(confirmRemove)}
+        title="Remove team member"
+        description={`Remove "${confirmRemove?.name || 'this member'}" from the workspace?`}
+        confirmLabel="Remove member"
+        loading={busy === `remove-${confirmRemove?.id}`}
+        onClose={() => setConfirmRemove(null)}
+        onConfirm={removeMember}
+      />
+
+      <ConfirmDialog
+        open={Boolean(confirmInvitation)}
+        title="Cancel invitation"
+        description={`Cancel the pending invitation for "${confirmInvitation?.email || 'this email'}"?`}
+        confirmLabel="Cancel invitation"
+        loading={busy === `cancel-${confirmInvitation?.id}`}
+        onClose={() => setConfirmInvitation(null)}
+        onConfirm={cancelInvitation}
+      />
     </div>
   )
 }
 
-function MembersTable({ members, currentUserId, canManage, isOwner, assignableRoles, busy, confirmRemove, setConfirmRemove, updateRole, removeMember }) {
+function MembersTable({ members, currentUserId, canManage, isOwner, assignableRoles, busy, setConfirmRemove, updateRole }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-left text-sm">
@@ -192,14 +234,7 @@ function MembersTable({ members, currentUserId, canManage, isOwner, assignableRo
                 </td>
                 <td className="px-5 py-4">{editable ? <RoleSelect value={member.role} roles={assignableRoles} onChange={(nextRole) => updateRole(member, nextRole)} disabled={busy === `role-${member.id}`} compact /> : <Badge color={ROLE_DETAILS[member.role]?.color || 'slate'}>{owner && <Crown className="mr-1 h-3 w-3" />}{ROLE_DETAILS[member.role]?.label || member.role}</Badge>}</td>
                 <td className="px-5 py-4 text-right">
-                  {editable && (confirmRemove === member.id ? (
-                    <div className="inline-flex items-center gap-1 rounded-xl bg-rose-50 p-1 dark:bg-rose-950/30">
-                      <Button size="sm" variant="danger" loading={busy === `remove-${member.id}`} onClick={() => removeMember(member)}>Remove</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>Cancel</Button>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => setConfirmRemove(member.id)} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30" aria-label={`Remove ${member.name}`}><Trash2 className="h-4 w-4" /></button>
-                  ))}
+                  {editable && <button type="button" onClick={() => setConfirmRemove(member)} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30" aria-label={`Remove ${member.name}`}><Trash2 className="h-4 w-4" /></button>}
                 </td>
               </tr>
             )
@@ -210,7 +245,7 @@ function MembersTable({ members, currentUserId, canManage, isOwner, assignableRo
   )
 }
 
-function InvitationsTable({ invitations, canManage, busy, invitationAction }) {
+function InvitationsTable({ invitations, canManage, busy, invitationAction, setConfirmInvitation }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-left text-sm">
@@ -223,7 +258,7 @@ function InvitationsTable({ invitations, canManage, busy, invitationAction }) {
               <td className="px-5 py-4"><p className="font-medium text-slate-800 dark:text-slate-100">{invitation.email}</p><p className="text-xs text-slate-400">Invited by {invitation.invited_by || 'a team admin'}</p></td>
               <td className="px-5 py-4"><Badge color={ROLE_DETAILS[invitation.role]?.color || 'slate'}>{ROLE_DETAILS[invitation.role]?.label || invitation.role}</Badge></td>
               <td className="px-5 py-4 text-slate-500 dark:text-slate-400">{invitation.is_expired ? 'Expired' : `Expires ${new Date(invitation.expires_at).toLocaleDateString()}`}</td>
-              <td className="px-5 py-4 text-right">{canManage && <div className="inline-flex items-center gap-2"><Button size="sm" variant="secondary" loading={busy === `resend-${invitation.id}`} onClick={() => invitationAction(invitation, 'resend')}><RefreshCw className="h-3.5 w-3.5" /> Resend</Button><Button size="sm" variant="ghost" className="text-rose-600 dark:text-rose-400" loading={busy === `cancel-${invitation.id}`} onClick={() => invitationAction(invitation, 'cancel')}><Trash2 className="h-3.5 w-3.5" /></Button></div>}</td>
+              <td className="px-5 py-4 text-right">{canManage && <div className="inline-flex items-center gap-2"><Button size="sm" variant="secondary" loading={busy === `resend-${invitation.id}`} onClick={() => invitationAction(invitation, 'resend')}><RefreshCw className="h-3.5 w-3.5" /> Resend</Button><Button size="sm" variant="ghost" className="text-rose-600 dark:text-rose-400" loading={busy === `cancel-${invitation.id}`} onClick={() => setConfirmInvitation(invitation)}><Trash2 className="h-3.5 w-3.5" /></Button></div>}</td>
             </tr>
           ))}
           {invitations.length === 0 && <tr><td colSpan="4" className="px-5 py-10 text-center text-slate-400">No pending invitations.</td></tr>}

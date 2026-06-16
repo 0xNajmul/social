@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Wand2, Hash, Sparkles, Send, CalendarClock, Save, AlertCircle, FolderOpen } from 'lucide-react'
 import api from '../lib/api'
 import { normalizeAccounts } from '../lib/accounts'
-import { Card, Button, Textarea, EmptyState } from '../components/ui'
+import { Card, Button, Textarea, EmptyState, Input } from '../components/ui'
 import { AccountIcon } from '../components/PlatformBadge'
 import MediaDropzone from '../components/composer/MediaDropzone'
 import MediaLibraryPicker from '../components/composer/MediaLibraryPicker'
@@ -27,12 +27,14 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
   const [content, setContent] = useState('')
   const [mediaItems, setMediaItems] = useState([])
   const [scheduledAt, setScheduledAt] = useState(() => toLocalDateTimeInput(initialScheduledAt || searchParams.get('scheduled_at')))
+  const [categories, setCategories] = useState('')
   const [aiBusy, setAiBusy] = useState(null)
   const [saving, setSaving] = useState(false)
   const [validation, setValidation] = useState({})
   const [lastSkipped, setLastSkipped] = useState([])
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [platformOptions, setPlatformOptions] = useState({})
+  const [sideTab, setSideTab] = useState('preview')
 
   useEffect(() => {
     api.get('/social/accounts').then(({ data }) => {
@@ -97,7 +99,10 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
     })),
     scheduled_at: scheduledAt || null,
     requires_approval: approvalRequired && mode !== 'draft',
-    options: approvalRequired && mode !== 'draft' ? { approval_action: mode } : {},
+    options: {
+      ...(approvalRequired && mode !== 'draft' ? { approval_action: mode } : {}),
+      categories: splitList(categories),
+    },
   })
 
   const addFromLibrary = (assets) => {
@@ -349,6 +354,13 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
           )}
 
           <Card className="p-5">
+            <Input
+              label="Categories"
+              value={categories}
+              onChange={(event) => setCategories(event.target.value)}
+              placeholder="Campaign, Launch, Ideas"
+              className="mb-4"
+            />
             <DateTimeField
               label="Schedule for"
               type="datetime-local"
@@ -369,27 +381,66 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
           </Card>
         </div>
 
-        {/* Live preview */}
         <div className="space-y-4 lg:col-span-2">
-          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Platform previews</h2>
-          {selectedAccounts.length === 0 && (
-            <p className="text-sm text-slate-400">Select accounts to see how your post will look on each network.</p>
+          <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+            {[
+              ['preview', 'Platform preview'],
+              ['ai', 'AI assistant'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSideTab(key)}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${sideTab === key ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {sideTab === 'preview' ? (
+            <>
+              {selectedAccounts.length === 0 && (
+                <p className="text-sm text-slate-400">Select accounts to see how your post will look on each network.</p>
+              )}
+              {selectedAccounts.map((a) => {
+                const skip = skipped.find((s) => s.id === a.id)
+                return (
+                  <PlatformPostPreview
+                    key={a.id}
+                    account={a}
+                    content={content}
+                    media={mediaItems.filter((m) => !m.uploading)}
+                    platforms={platforms}
+                    options={platformOptions[a.id]}
+                    skipped={Boolean(skip)}
+                    skipReason={skip?.skipReason}
+                  />
+                )
+              })}
+            </>
+          ) : (
+            <Card className="p-5">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+                  <Sparkles className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="font-semibold text-slate-900 dark:text-white">AI assistant</h2>
+                  <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Use the current caption as context and generate better hooks, captions, or hashtags.</p>
+                </div>
+              </div>
+              <div className="mt-5 grid gap-2">
+                <Button variant="secondary" onClick={() => runAi('caption')} loading={aiBusy === 'caption'}><Wand2 className="h-4 w-4" /> Rewrite caption</Button>
+                <Button variant="secondary" onClick={() => runAi('hook')} loading={aiBusy === 'hook'}><Sparkles className="h-4 w-4" /> Generate hook</Button>
+                <Button variant="secondary" onClick={() => runAi('hashtags')} loading={aiBusy === 'hashtags'}><Hash className="h-4 w-4" /> Add hashtags</Button>
+              </div>
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Context</p>
+                <p className="mt-2 line-clamp-6 text-sm leading-6 text-slate-600 dark:text-slate-300">{content || 'Write a caption first, then ask AI to improve it.'}</p>
+              </div>
+            </Card>
           )}
-          {selectedAccounts.map((a) => {
-            const skip = skipped.find((s) => s.id === a.id)
-            return (
-              <PlatformPostPreview
-                key={a.id}
-                account={a}
-                content={content}
-                media={mediaItems.filter((m) => !m.uploading)}
-                platforms={platforms}
-                options={platformOptions[a.id]}
-                skipped={Boolean(skip)}
-                skipReason={skip?.skipReason}
-              />
-            )
-          })}
         </div>
       </div>
 
@@ -413,4 +464,8 @@ function toLocalDateTimeInput(value) {
   if (Number.isNaN(date.getTime())) return ''
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
   return local.toISOString().slice(0, 16)
+}
+
+function splitList(value) {
+  return String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
 }

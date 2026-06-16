@@ -15,6 +15,7 @@ class AdminUserController extends Controller
     public function index(Request $request): JsonResponse
     {
         $users = User::query()
+            ->with('adminRole')
             ->withCount('workspaces')
             ->when($request->search, fn ($q, $s) => $q->where(fn ($w) => $w->where('name', 'like', "%{$s}%")->orWhere('email', 'like', "%{$s}%")))
             ->latest()
@@ -26,7 +27,7 @@ class AdminUserController extends Controller
     public function show(User $user): JsonResponse
     {
         return response()->json([
-            'data' => new UserResource($user->load('workspaces.subscription.plan')),
+            'data' => new UserResource($user->load('adminRole', 'workspaces.subscription.plan')),
         ]);
     }
 
@@ -39,12 +40,16 @@ class AdminUserController extends Controller
             'timezone' => ['nullable', 'timezone:all'],
             'locale' => ['nullable', 'string', 'max:8'],
             'is_admin' => ['boolean'],
+            'admin_role_id' => ['nullable', 'exists:admin_roles,id'],
         ]);
 
         $data['timezone'] = $data['timezone'] ?? 'UTC';
         $data['locale'] = $data['locale'] ?? 'en';
+        if (! ($data['is_admin'] ?? false)) {
+            $data['admin_role_id'] = null;
+        }
         $data['password'] = Hash::make($data['password']);
-        $user = User::create($data);
+        $user = User::create($data)->load('adminRole');
 
         return response()->json(['data' => new UserResource($user)], 201);
     }
@@ -58,6 +63,7 @@ class AdminUserController extends Controller
             'password' => ['nullable', 'string', 'min:8'],
             'timezone' => ['sometimes', 'timezone:all'],
             'locale' => ['sometimes', 'string', 'max:8'],
+            'admin_role_id' => ['nullable', 'exists:admin_roles,id'],
         ]);
 
         abort_if(
@@ -71,9 +77,12 @@ class AdminUserController extends Controller
         } else {
             unset($data['password']);
         }
+        if (array_key_exists('is_admin', $data) && ! $data['is_admin']) {
+            $data['admin_role_id'] = null;
+        }
         $user->update($data);
 
-        return response()->json(['data' => new UserResource($user)]);
+        return response()->json(['data' => new UserResource($user->load('adminRole'))]);
     }
 
     public function impersonationToken(User $user): JsonResponse

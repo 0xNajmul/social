@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Bell, CheckCheck, CircleAlert, CircleCheck, Link2, Loader2 } from 'lucide-react'
 import api from '../lib/api'
 
@@ -116,6 +117,15 @@ export default function NotificationMenu({ open, onOpenChange, onSelect }) {
             ) : notifications.map((notification) => (
               <NotificationItem key={notification.id} notification={notification} onClick={() => markRead(notification)} />
             ))}
+          </div>
+          <div className="border-t border-slate-100 p-2 dark:border-slate-700">
+            <Link
+              to="/app/notifications"
+              onClick={() => onOpenChange(false)}
+              className="flex items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-600 transition hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/40"
+            >
+              Show all notifications
+            </Link>
           </div>
         </div>
       )}

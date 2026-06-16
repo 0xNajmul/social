@@ -186,6 +186,7 @@ class AuthController extends Controller
     public function me(Request $request): JsonResponse
     {
         $user = $request->user()->load([
+            'adminRole',
             'workspaces' => fn ($q) => $q->withCount(['members', 'socialAccounts'])->with('subscription.plan'),
         ]);
 

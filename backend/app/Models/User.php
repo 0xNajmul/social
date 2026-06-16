@@ -25,6 +25,7 @@ class User extends Authenticatable
         'timezone',
         'locale',
         'is_admin',
+        'admin_role_id',
         'current_workspace_id',
     ];
 
@@ -72,6 +73,14 @@ class User extends Authenticatable
     public function currentWorkspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class, 'current_workspace_id');
+    }
+
+    /**
+     * @return BelongsTo<AdminRole, $this>
+     */
+    public function adminRole(): BelongsTo
+    {
+        return $this->belongsTo(AdminRole::class, 'admin_role_id');
     }
 
     /**

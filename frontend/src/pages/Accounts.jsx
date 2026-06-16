@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Plus, RefreshCw, Trash2, AlertTriangle, CheckCircle2, X } from 'lucide-react'
 import api from '../lib/api'
 import { connectPlatforms, normalizeAccounts } from '../lib/accounts'
-import { Card, Button, Badge, PageLoader, EmptyState, Input } from '../components/ui'
+import { Card, Button, Badge, PageLoader, EmptyState, Input, ConfirmDialog } from '../components/ui'
 import PlatformBadge, { AccountIcon } from '../components/PlatformBadge'
 
 export default function Accounts() {
@@ -17,6 +17,8 @@ export default function Accounts() {
   const [chatId, setChatId] = useState('')
   const [webhookUrl, setWebhookUrl] = useState('')
   const [blueskyIdentifier, setBlueskyIdentifier] = useState('')
+  const [confirmDisconnect, setConfirmDisconnect] = useState(null)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   const load = () => {
     api.get('/social/accounts').then(({ data }) => setAccounts(normalizeAccounts(data.data)))
@@ -92,10 +94,16 @@ export default function Accounts() {
     connect(account.platform)
   }
 
-  const disconnect = async (id) => {
-    if (!confirm('Disconnect this account?')) return
-    await api.delete(`/social/accounts/${id}`)
-    load()
+  const disconnect = async () => {
+    if (!confirmDisconnect) return
+    setDisconnecting(true)
+    try {
+      await api.delete(`/social/accounts/${confirmDisconnect.id}`)
+      setConfirmDisconnect(null)
+      load()
+    } finally {
+      setDisconnecting(false)
+    }
   }
 
   const refresh = async (id) => {
@@ -185,7 +193,7 @@ export default function Accounts() {
                     Sync communities
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => disconnect(acc.id)} className="text-rose-500"><Trash2 className="h-3.5 w-3.5" /></Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmDisconnect(acc)} className="text-rose-500"><Trash2 className="h-3.5 w-3.5" /></Button>
               </div>
             </Card>
           ))}
@@ -293,6 +301,16 @@ export default function Accounts() {
           </Card>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(confirmDisconnect)}
+        title="Disconnect account"
+        description={`Disconnect "${confirmDisconnect?.name || 'this account'}"? Scheduled posts for this profile may stop publishing.`}
+        confirmLabel="Disconnect"
+        loading={disconnecting}
+        onClose={() => setConfirmDisconnect(null)}
+        onConfirm={disconnect}
+      />
     </div>
   )
 }

@@ -1,27 +1,40 @@
 import { useMemo, useState } from 'react'
-import { Copy, DollarSign, Gift, Link2, TrendingUp, Users, WalletCards } from 'lucide-react'
+import { BarChart3, Copy, DollarSign, Gift, Link2, TrendingUp, Users, WalletCards } from 'lucide-react'
+import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Input } from '../components/ui'
 
 const REFERRAL_HISTORY = [
-  { name: 'Northstar Studio', status: 'Subscribed', date: 'Jun 12, 2026', reward: '$24.50' },
-  { name: 'Apex Creators', status: 'Trial', date: 'Jun 8, 2026', reward: 'Pending' },
-  { name: 'Pixel Forge', status: 'Signed up', date: 'May 28, 2026', reward: 'Pending' },
+  { id: 'RF-1042', name: 'Northstar Studio', package: 'Business', status: 'Subscribed', date: 'Jun 12, 2026', reward: '$24.50' },
+  { id: 'RF-1037', name: 'Apex Creators', package: 'Trial', status: 'Trial', date: 'Jun 8, 2026', reward: 'Pending' },
+  { id: 'RF-1028', name: 'Pixel Forge', package: 'Free', status: 'Signed up', date: 'May 28, 2026', reward: 'Pending' },
 ]
 
 const MONTHLY_HISTORY = [
-  { month: 'June 2026', referrals: 3, commission: '$24.50' },
-  { month: 'May 2026', referrals: 7, commission: '$118.00' },
-  { month: 'April 2026', referrals: 4, commission: '$72.00' },
+  { month: 'June 2026', referrals: 3, upgrades: 1, commission: '$24.50', status: 'Open' },
+  { month: 'May 2026', referrals: 7, upgrades: 4, commission: '$118.00', status: 'Paid' },
+  { month: 'April 2026', referrals: 4, upgrades: 2, commission: '$72.00', status: 'Paid' },
+]
+
+const USAGE_HISTORY = [
+  { date: 'Jun 15, 2026', type: 'Balance credit', amount: '+$24.50', note: 'Business plan renewal' },
+  { date: 'May 31, 2026', type: 'Withdraw request', amount: '-$100.00', note: 'Bank payout' },
+  { date: 'May 20, 2026', type: 'Balance credit', amount: '+$42.00', note: 'Two Pro upgrades' },
+]
+
+const TABS = [
+  { key: 'referrals', label: 'Referral history', icon: Users },
+  { key: 'monthly', label: 'Affiliate monthly history', icon: WalletCards },
+  { key: 'usage', label: 'Withdraw/usage history', icon: DollarSign },
+  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
 export default function InviteEarn() {
   const { user, activeWorkspace } = useAuth()
   const [copied, setCopied] = useState(false)
-  const referralUrl = useMemo(() => {
-    const code = user?.referral_code || `PF-${user?.id || 'USER'}`
-    return `${window.location.origin}/register?ref=${encodeURIComponent(code)}`
-  }, [user])
+  const [tab, setTab] = useState('referrals')
+  const memberId = user?.member_id || user?.referral_code || buildMemberId(user?.id)
+  const referralUrl = useMemo(() => `${window.location.origin}/register?ref=${encodeURIComponent(memberId)}`, [memberId])
 
   const copyLink = async () => {
     await navigator.clipboard?.writeText(referralUrl)
@@ -31,108 +44,160 @@ export default function InviteEarn() {
 
   return (
     <div className="space-y-6">
-      <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-600 via-indigo-600 to-violet-700 p-6 text-white shadow-xl shadow-brand-900/20 sm:p-8">
-        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-          <div>
-            <Badge className="bg-white/15 text-white dark:bg-white/15 dark:text-white">Invite & earn</Badge>
-            <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">Share Postflow and earn recurring rewards.</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-indigo-100">
-              Give creators and teams your referral link. When they upgrade, your affiliate balance grows with every eligible subscription.
-            </p>
-          </div>
-          <Card className="border-white/15 bg-white/10 p-5 text-white shadow-none backdrop-blur dark:border-white/15 dark:bg-white/10">
-            <p className="text-sm text-indigo-100">Current package</p>
-            <p className="mt-1 text-2xl font-bold">{activeWorkspace?.subscription?.plan?.name || 'Starter'}</p>
-            <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-              <Metric icon={WalletCards} label="Balance" value="$214.50" />
-              <Metric icon={TrendingUp} label="This month" value="$24.50" />
-            </div>
-          </Card>
+      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Invite & earn</h1>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">Share your member referral link, track signups, and monitor affiliate rewards from one place.</p>
         </div>
+        <Card className="w-full p-3 xl:max-w-xl">
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Referral link · Member ID {memberId}</p>
+              <Input value={referralUrl} readOnly />
+            </div>
+            <Button onClick={copyLink} variant={copied ? 'secondary' : 'primary'} className="self-end"><Copy className="h-4 w-4" /> {copied ? 'Copied' : 'Copy'}</Button>
+          </div>
+        </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Stat icon={Users} label="Total referrals" value="14" />
-        <Stat icon={DollarSign} label="Paid commission" value="$438.00" />
-        <Stat icon={Gift} label="Pending rewards" value="$96.50" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Stat icon={Users} label="Total referrals" value="14" hint="3 this month" />
+        <Stat icon={WalletCards} label="Balance" value="$214.50" hint="Available rewards" />
+        <Stat icon={TrendingUp} label="This month" value="$24.50" hint="Eligible commission" />
+        <Stat icon={Gift} label="Current package" value={activeWorkspace?.subscription?.plan?.name || 'Free'} hint="Workspace plan" />
       </div>
 
       <Card className="overflow-hidden">
-        <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4 dark:border-slate-800 dark:bg-slate-800/40">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300"><Link2 className="h-5 w-5" /></span>
-            <div>
-              <h2 className="font-semibold text-slate-900 dark:text-white">Your referral link</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Share this link anywhere you promote your workspace.</p>
-            </div>
-          </div>
+        <div className="flex gap-2 overflow-x-auto border-b border-slate-200 p-3 dark:border-slate-800">
+          {TABS.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={clsx(
+                'inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition',
+                tab === key ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white',
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="grid gap-3 p-5 sm:grid-cols-[1fr_auto]">
-          <Input value={referralUrl} readOnly />
-          <Button onClick={copyLink} variant={copied ? 'secondary' : 'primary'}><Copy className="h-4 w-4" /> {copied ? 'Copied' : 'Copy link'}</Button>
-        </div>
-      </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="overflow-hidden">
-          <SectionTitle title="Referral history" description="People and workspaces that joined from your link." />
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        {tab === 'referrals' && (
+          <DataTable columns={['Referral ID', 'Workspace', 'Package', 'Status', 'Joined', 'Reward']}>
             {REFERRAL_HISTORY.map((item) => (
-              <HistoryRow key={item.name} title={item.name} meta={`${item.status} · ${item.date}`} value={item.reward} />
+              <tr key={item.id} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="px-4 py-3 font-mono text-xs text-slate-500">{item.id}</td>
+                <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{item.name}</td>
+                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.package}</td>
+                <td className="px-4 py-3"><Badge color={item.status === 'Subscribed' ? 'emerald' : 'amber'}>{item.status}</Badge></td>
+                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.date}</td>
+                <td className="px-4 py-3 font-semibold text-emerald-600 dark:text-emerald-400">{item.reward}</td>
+              </tr>
             ))}
-          </div>
-        </Card>
+          </DataTable>
+        )}
 
-        <Card className="overflow-hidden">
-          <SectionTitle title="Affiliate monthly history" description="Commission summary by month." />
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        {tab === 'monthly' && (
+          <DataTable columns={['Month', 'Referrals', 'Upgrades', 'Commission', 'Status']}>
             {MONTHLY_HISTORY.map((item) => (
-              <HistoryRow key={item.month} title={item.month} meta={`${item.referrals} referrals`} value={item.commission} />
+              <tr key={item.month} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{item.month}</td>
+                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.referrals}</td>
+                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.upgrades}</td>
+                <td className="px-4 py-3 font-semibold text-emerald-600 dark:text-emerald-400">{item.commission}</td>
+                <td className="px-4 py-3"><Badge color={item.status === 'Paid' ? 'emerald' : 'sky'}>{item.status}</Badge></td>
+              </tr>
             ))}
-          </div>
-        </Card>
-      </div>
+          </DataTable>
+        )}
+
+        {tab === 'usage' && (
+          <DataTable columns={['Date', 'Type', 'Amount', 'Note']}>
+            {USAGE_HISTORY.map((item) => (
+              <tr key={`${item.date}-${item.type}`} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.date}</td>
+                <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{item.type}</td>
+                <td className={clsx('px-4 py-3 font-semibold', item.amount.startsWith('+') ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>{item.amount}</td>
+                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.note}</td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
+
+        {tab === 'analytics' && <AffiliateAnalytics />}
+      </Card>
     </div>
   )
 }
 
-function Stat({ icon: Icon, label, value }) {
+function Stat({ icon: Icon, label, value, hint }) {
   return (
     <Card className="p-5">
       <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300"><Icon className="h-5 w-5" /></span>
       <p className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
       <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
+      {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
     </Card>
   )
 }
 
-function Metric({ icon: Icon, label, value }) {
+function DataTable({ columns, children }) {
   return (
-    <div className="rounded-2xl bg-white/10 p-4">
-      <Icon className="h-5 w-5 text-indigo-100" />
-      <p className="mt-3 text-xl font-bold">{value}</p>
-      <p className="text-xs text-indigo-100">{label}</p>
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[820px] text-left text-sm">
+        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+          <tr>{columns.map((column) => <th key={column} className="px-4 py-3 font-semibold">{column}</th>)}</tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
     </div>
   )
 }
 
-function SectionTitle({ title, description }) {
-  return (
-    <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-      <h2 className="font-semibold text-slate-900 dark:text-white">{title}</h2>
-      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
-    </div>
-  )
-}
+function AffiliateAnalytics() {
+  const bars = [42, 64, 38, 88, 73, 104, 92]
 
-function HistoryRow({ title, meta, value }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-4">
-      <div>
-        <p className="font-medium text-slate-900 dark:text-white">{title}</p>
-        <p className="text-sm text-slate-500 dark:text-slate-400">{meta}</p>
+    <div className="grid gap-4 p-5 lg:grid-cols-[1.4fr_0.6fr]">
+      <div className="rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-900 dark:text-white">Referral conversion trend</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Demo analytics for clicks, trials, upgrades, and commissions.</p>
+          </div>
+          <Link2 className="h-5 w-5 text-brand-500" />
+        </div>
+        <div className="mt-6 flex h-60 items-end gap-3">
+          {bars.map((height, index) => (
+            <div key={index} className="flex flex-1 flex-col items-center gap-2">
+              <div className="w-full rounded-t-xl bg-gradient-to-t from-brand-600 to-sky-400" style={{ height }} />
+              <span className="text-[10px] text-slate-400">W{index + 1}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">{value}</span>
+      <div className="grid gap-3">
+        <MiniAnalytic label="Referral clicks" value="1,284" />
+        <MiniAnalytic label="Trial signups" value="82" />
+        <MiniAnalytic label="Paid upgrades" value="17" />
+        <MiniAnalytic label="Conversion rate" value="20.7%" />
+      </div>
     </div>
   )
+}
+
+function MiniAnalytic({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+    </div>
+  )
+}
+
+function buildMemberId(id) {
+  return String(Number(id || 0) * 1000003 + 7919).padStart(10, '0').slice(0, 10)
 }

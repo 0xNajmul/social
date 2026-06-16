@@ -127,7 +127,7 @@ export default function MediaDropzone({ items, onChange, disabled }) {
       </div>
 
       {items.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
           {items.map((item) => (
             <MediaThumb key={item.id} item={item} onRemove={() => remove(item.id)} />
           ))}
@@ -144,17 +144,17 @@ function MediaThumb({ item, onRemove }) {
 
   return (
     <div className="group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800">
-      <div className="aspect-square">
+      <div className="aspect-[4/3]">
         {isDoc ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-3 text-slate-500">
-            <FileText className="h-10 w-10" />
+            <FileText className="h-7 w-7" />
             <span className="line-clamp-2 text-center text-[10px]">{item.original_name}</span>
           </div>
         ) : isVideo ? (
           <div className="relative h-full w-full bg-black">
             <video src={src} className="h-full w-full object-cover" muted />
             <span className="absolute inset-0 flex items-center justify-center bg-black/30">
-              <Film className="h-8 w-8 text-white" />
+              <Film className="h-6 w-6 text-white" />
             </span>
           </div>
         ) : (
@@ -162,7 +162,7 @@ function MediaThumb({ item, onRemove }) {
         )}
         {item.uploading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-            <Loader2 className="h-8 w-8 animate-spin text-white" />
+            <Loader2 className="h-6 w-6 animate-spin text-white" />
           </div>
         )}
       </div>
@@ -172,11 +172,11 @@ function MediaThumb({ item, onRemove }) {
           e.stopPropagation()
           onRemove()
         }}
-        className="absolute right-2 top-2 rounded-full bg-black/60 p-1 text-white opacity-0 transition group-hover:opacity-100"
+        className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1 text-white opacity-0 transition group-hover:opacity-100"
       >
         <X className="h-3.5 w-3.5" />
       </button>
-      <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-white">
+      <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/50 px-1.5 py-0.5 text-[9px] font-medium uppercase text-white">
         {isVideo ? 'Video' : isDoc ? 'File' : item.type === 'gif' ? 'GIF' : 'Image'}
       </span>
     </div>

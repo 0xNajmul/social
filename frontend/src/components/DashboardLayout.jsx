@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
+  Bell,
   LayoutDashboard, PenSquare, CalendarDays, Image, CircleUserRound, Workflow,
   BarChart3, Users, CreditCard, Settings, Code2, Moon, Sun, LogOut,
-  Menu, ChevronDown, Sparkles, UserRound, ClipboardList,
+  Menu, ChevronDown, ChevronRight, Sparkles, UserRound, ClipboardList,
   Building2, Gift,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import api from '../lib/api'
 import NotificationMenu from './NotificationMenu'
 import PanelSearch from './PanelSearch'
 import QuickActions from './QuickActions'
@@ -29,13 +31,12 @@ const ACCOUNT_NAV = [
   { to: '/app/settings', label: 'Settings', icon: Settings },
   { to: '/app/pricing-plan', label: 'Pricing plan', icon: CreditCard },
   { to: '/app/invite', label: 'Invite & earn', icon: Gift },
-  { to: '/app/workspaces', label: 'Workspaces', icon: Building2 },
   { to: '/app/team', label: 'Team', icon: Users },
   { to: '/app/developer', label: 'Developer', icon: Code2 },
 ]
 
 export default function DashboardLayout() {
-  const { user, activeWorkspace, logout } = useAuth()
+  const { user, workspaces, activeWorkspace, switchWorkspace, logout } = useAuth()
   const { theme, toggle } = useTheme()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
@@ -43,6 +44,8 @@ export default function DashboardLayout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [sidebarUserMenuOpen, setSidebarUserMenuOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
+  const [notificationCount, setNotificationCount] = useState(0)
+  const [branding, setBranding] = useState(null)
   const userMenuRef = useRef(null)
   const sidebarUserMenuRef = useRef(null)
 
@@ -68,18 +71,40 @@ export default function DashboardLayout() {
     }
   }, [])
 
+  useEffect(() => {
+    const loadCount = () => api.get('/notifications').then(({ data }) => setNotificationCount(data.unread_count || 0)).catch(() => setNotificationCount(0))
+    loadCount()
+    const timer = window.setInterval(loadCount, 60000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    api.get('/public/settings').then(({ data }) => setBranding(data)).catch(() => setBranding(null))
+  }, [])
+
   const handleLogout = async () => {
     await logout()
     navigate('/login')
   }
   const currentPlan = activeWorkspace?.subscription?.plan?.name || activeWorkspace?.subscription?.plan_name || 'Free plan'
+  const workspaceCount = workspaces?.length || 0
+  const totalTeamCount = (workspaces || []).reduce((total, workspace) => total + Number(workspace.members_count || 0), 0)
   const contentFullWidth = activeWorkspace?.settings?.content_width === 'full'
+  const brandName = branding?.general?.site_name || branding?.platform_name || 'Postflow'
+  const logoUrl = branding?.general?.logo_url
   const toggleSidebar = () => {
     setSidebarHidden((hidden) => {
       const next = !hidden
       localStorage.setItem('postflow_sidebar_hidden', String(next))
       return next
     })
+  }
+
+  const switchFromSidebar = async (workspace) => {
+    if (!workspace || workspace.slug === activeWorkspace?.slug) return
+    setSidebarUserMenuOpen(false)
+    await switchWorkspace(workspace.slug)
+    window.location.reload()
   }
 
   return (
@@ -93,10 +118,8 @@ export default function DashboardLayout() {
         )}
       >
         <div className="flex h-16 items-center gap-2 border-b border-slate-200 px-5 dark:border-slate-800">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">Postflow</span>
+          <BrandMark logoUrl={logoUrl} />
+          <span className="truncate text-lg font-bold tracking-tight text-slate-900 dark:text-white">{brandName}</span>
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
@@ -123,12 +146,70 @@ export default function DashboardLayout() {
 
         <div className="relative border-t border-slate-200 p-3 dark:border-slate-800" ref={sidebarUserMenuRef}>
           {sidebarUserMenuOpen && (
-            <div className="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="menu">
+            <div className="absolute bottom-full left-3 right-3 mb-2 overflow-visible rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="menu">
               <div className="px-3 py-2">
                 <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{user?.name}</p>
                 <p className="truncate text-xs text-slate-500 dark:text-slate-400">{user?.email}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{workspaceCount} workspaces</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{totalTeamCount} team</span>
+                </div>
               </div>
               <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+              <div className="group relative">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  role="menuitem"
+                >
+                  <Building2 className="h-4 w-4" />
+                  <span className="min-w-0 flex-1 truncate">Workspaces</span>
+                  <span className="rounded-full bg-brand-50 px-1.5 text-[11px] font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-200">{workspaceCount}</span>
+                  <ChevronRight className="h-4 w-4 text-slate-400" />
+                </button>
+                <div className="invisible absolute bottom-0 left-full z-50 ml-2 w-80 translate-x-1 opacity-0 transition group-hover:visible group-hover:translate-x-0 group-hover:opacity-100">
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+                    <div className="px-3 py-2">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">Switch workspace</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{workspaceCount} workspaces · {totalTeamCount} total members</p>
+                    </div>
+                    <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                      {(workspaces || []).map((workspace) => {
+                        const active = workspace.slug === activeWorkspace?.slug
+                        return (
+                          <div key={workspace.id} className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/60">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white" style={{ backgroundColor: workspace.brand_color || '#4f46e5' }}>
+                              {workspace.name?.[0]?.toUpperCase() || 'W'}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{workspace.name}</span>
+                              <span className="block truncate text-[11px] text-slate-400">{workspace.members_count ?? 0} members · {workspace.social_accounts_count ?? 0} accounts</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => switchFromSidebar(workspace)}
+                              disabled={active}
+                              className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-white disabled:border-brand-200 disabled:bg-brand-50 disabled:text-brand-700 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:disabled:border-brand-900/60 dark:disabled:bg-brand-950/40 dark:disabled:text-brand-300"
+                            >
+                              {active ? 'Active' : 'Switch'}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <NavLink
+                      to="/app/workspaces"
+                      onClick={() => {
+                        setSidebarUserMenuOpen(false)
+                        setOpen(false)
+                      }}
+                      className="mt-2 flex items-center justify-center rounded-xl bg-brand-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+                    >
+                      Manage workspaces
+                    </NavLink>
+                  </div>
+                </div>
+              </div>
               {ACCOUNT_NAV.map((item) => (
                 <NavLink
                   key={item.to}
@@ -274,6 +355,16 @@ export default function DashboardLayout() {
                     Profile
                   </NavLink>
                   <NavLink
+                    to="/app/notifications"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    role="menuitem"
+                  >
+                    <Bell className="h-4 w-4" />
+                    <span className="min-w-0 flex-1">Notifications</span>
+                    {notificationCount > 0 && <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{notificationCount > 99 ? '99+' : notificationCount}</span>}
+                  </NavLink>
+                  <NavLink
                     to="/app/settings"
                     onClick={() => setUserMenuOpen(false)}
                     className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -310,6 +401,22 @@ export default function DashboardLayout() {
           <Outlet />
         </main>
       </div>
+    </div>
+  )
+}
+
+function BrandMark({ logoUrl }) {
+  if (logoUrl) {
+    return (
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white ring-1 ring-slate-200 dark:ring-slate-700">
+        <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" />
+      </span>
+    )
+  }
+
+  return (
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
+      <Sparkles className="h-5 w-5" />
     </div>
   )
 }

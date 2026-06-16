@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import api from '../lib/api'
-import { Card, Button, Badge, PageLoader } from '../components/ui'
+import { Card, Button, PageLoader } from '../components/ui'
 
 export default function Billing() {
   const [plans, setPlans] = useState([])
@@ -31,17 +31,6 @@ export default function Billing() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Billing</h1>
 
-      {sub && (
-        <Card className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center">
-          <div>
-            <p className="text-sm text-slate-500">Current plan</p>
-            <p className="text-xl font-bold text-slate-900 dark:text-white">{sub.plan?.name}</p>
-            <p className="text-xs text-slate-400">Renews {sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString() : '—'}</p>
-          </div>
-          <Badge color={sub.on_trial ? 'amber' : 'emerald'}>{sub.status_label}</Badge>
-        </Card>
-      )}
-
       <div className="flex justify-center">
         <div className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white p-1 text-sm dark:border-slate-700 dark:bg-slate-800">
           <button onClick={() => setYearly(false)} className={`rounded-full px-4 py-1.5 ${!yearly ? 'bg-brand-600 text-white' : 'text-slate-500'}`}>Monthly</button>
@@ -67,6 +56,11 @@ export default function Billing() {
               <Button className="mt-6 w-full" variant={current ? 'secondary' : 'primary'} disabled={current} loading={busy === plan.id} onClick={() => subscribe(plan.id)}>
                 {current ? 'Current plan' : 'Choose plan'}
               </Button>
+              {current && (
+                <p className="mt-2 text-center text-xs text-slate-400">
+                  {sub?.current_period_end ? `Renews ${new Date(sub.current_period_end).toLocaleDateString()}` : 'Renewal date not available'}
+                </p>
+              )}
             </Card>
           )
         })}

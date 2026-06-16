@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Building2, Edit3, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { AlertTriangle, Building2, Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import api from '../lib/api'
 import { Badge, Button, Card, Input, Modal, PageLoader } from '../components/ui'
 import DateTimeField from '../components/DateTimeField'
@@ -73,7 +73,8 @@ export default function Workspaces() {
         <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto">
           <div className="relative flex-1 xl:w-80">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && load()} className="pl-9" placeholder="Search workspaces..." />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && load()} className="pl-9 pr-9" placeholder="Search workspaces..." />
+            {search && <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-500 hover:bg-slate-700 hover:text-white" aria-label="Clear workspace search"><X className="h-3.5 w-3.5" /></button>}
           </div>
           <Button variant="secondary" onClick={() => load()}>Search</Button>
           <Button onClick={openCreate}><Plus className="h-4 w-4" /> Add workspace</Button>

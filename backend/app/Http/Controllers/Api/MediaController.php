@@ -17,8 +17,8 @@ class MediaController extends Controller
     public function index(Request $request): JsonResponse
     {
         $assets = workspace()->mediaAssets()
-            ->when($request->folder_id, fn ($q, $id) => $q->where('folder_id', $id))
             ->when($request->filled('folder_id') && $request->folder_id === 'root', fn ($q) => $q->whereNull('folder_id'))
+            ->when($request->filled('folder_id') && $request->folder_id !== 'root', fn ($q) => $q->where('folder_id', $request->folder_id))
             ->when($request->type, fn ($q, $t) => $q->where('type', $t))
             ->when($request->search, fn ($q, $s) => $q->where('original_name', 'like', "%{$s}%"))
             ->latest()

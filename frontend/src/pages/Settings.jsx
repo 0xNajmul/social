@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Bell, Clock3, CreditCard, Maximize2, Palette, PlugZap, Save, Settings2, ShieldCheck, UserRound } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Bell, Clock3, CreditCard, Maximize2, Moon, Palette, Save, Settings2, ShieldCheck, Sun, UserRound, PlugZap } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Input, PageLoader } from '../components/ui'
-import { timezones } from '../lib/timezones'
+import { useTheme } from '../context/ThemeContext'
 
 const TABS = [
   { key: 'general', label: 'General', icon: Settings2 },
@@ -16,11 +17,13 @@ const TABS = [
 
 export default function Settings() {
   const { user, reload } = useAuth()
+  const { theme, setTheme } = useTheme()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [workspace, setWorkspace] = useState(null)
   const [usage, setUsage] = useState({})
   const [permissions, setPermissions] = useState({})
   const [role, setRole] = useState('')
-  const [tab, setTab] = useState('general')
+  const [tab, setTab] = useState(() => TABS.some((item) => item.key === searchParams.get('tab')) ? searchParams.get('tab') : 'general')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
 
@@ -40,6 +43,7 @@ export default function Settings() {
           publishing_alerts: item.settings?.publishing_alerts ?? true,
           weekly_summary: item.settings?.weekly_summary ?? false,
           content_width: item.settings?.content_width || 'contained',
+          popup_default_stage: item.settings?.popup_default_stage ?? localStorage.getItem('postflow_popup_default_stage') ?? '0',
         },
         subscription: item.subscription,
       })
@@ -56,7 +60,13 @@ export default function Settings() {
 
   const updateSetting = (field, value) => {
     setWorkspace((current) => ({ ...current, settings: { ...current.settings, [field]: value } }))
+    if (field === 'popup_default_stage') localStorage.setItem('postflow_popup_default_stage', value)
     setMessage(null)
+  }
+
+  const changeTab = (nextTab) => {
+    setTab(nextTab)
+    setSearchParams({ tab: nextTab }, { replace: true })
   }
 
   const save = async (event) => {
@@ -99,7 +109,7 @@ export default function Settings() {
             <button
               key={key}
               type="button"
-              onClick={() => setTab(key)}
+              onClick={() => changeTab(key)}
               className={`inline-flex whitespace-nowrap items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${tab === key ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white'}`}
             >
               <Icon className="h-4 w-4" /> {label}
@@ -142,17 +152,9 @@ export default function Settings() {
         <form onSubmit={save} className="space-y-6">
           {tab === 'general' && (
             <>
-              <SettingsCard icon={Palette} title="General" description="Control theme-facing workspace identity, language, and timezone.">
-                <Input label="Workspace name" value={workspace.name} onChange={(event) => update('name', event.target.value)} disabled={!canUpdate} required />
-                <TimezoneSelect value={workspace.timezone} onChange={(value) => update('timezone', value)} disabled={!canUpdate} />
+              <SettingsCard icon={Palette} title="General" description="Control personal language and planning defaults for this workspace.">
                 <Select label="Language" value={workspace.settings.language} onChange={(value) => updateSetting('language', value)} disabled={!canUpdate} options={[['en', 'English'], ['bn', 'Bangla'], ['es', 'Spanish'], ['fr', 'French']]} />
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Theme color</span>
-                  <div className="flex items-center gap-3">
-                    <input type="color" value={workspace.brand_color} onChange={(event) => update('brand_color', event.target.value)} disabled={!canUpdate} className="h-11 w-16 cursor-pointer rounded-xl border border-slate-300 bg-white p-1 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-800" />
-                    <Input value={workspace.brand_color} onChange={(event) => update('brand_color', event.target.value)} disabled={!canUpdate} className="max-w-40" />
-                  </div>
-                </label>
+                <HelpCard title="Workspace identity moved" text="Workspace name, timezone, and theme color now live on the workspace edit page so brand settings stay in one place." />
               </SettingsCard>
               <SettingsCard icon={Clock3} title="Planning defaults" description="These defaults are used by calendars and new scheduled posts.">
                 <Select label="Week starts on" value={workspace.settings.week_starts_on} onChange={(value) => updateSetting('week_starts_on', value)} disabled={!canUpdate} options={[['sunday', 'Sunday'], ['monday', 'Monday']]} />
@@ -163,6 +165,21 @@ export default function Settings() {
 
           {tab === 'appearance' && (
             <SettingsCard icon={Maximize2} title="Appearance" description="Choose how much horizontal space the user panel content can use.">
+              <div className="sm:col-span-2">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Theme</span>
+                <div className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-950/40">
+                  {[['light', 'Light', Sun], ['dark', 'Dark', Moon]].map(([key, label, Icon]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setTheme(key)}
+                      className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${theme === key ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-800 dark:text-brand-300' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                    >
+                      <Icon className="h-4 w-4" /> {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <Select
                 label="User panel content width"
                 value={workspace.settings.content_width}
@@ -173,12 +190,30 @@ export default function Settings() {
                   ['full', 'Full width'],
                 ]}
               />
+              <Select
+                label="Default popup size"
+                value={String(workspace.settings.popup_default_stage)}
+                onChange={(value) => updateSetting('popup_default_stage', value)}
+                disabled={!canUpdate}
+                options={[
+                  ['0', 'Small popup'],
+                  ['1', 'Content screen'],
+                  ['2', 'Full screen'],
+                ]}
+              />
               <HelpCard title="Layout behavior" text="Current width keeps pages inside the polished centered container. Full width lets dashboard, organizer, media, and settings content stretch across the available app area." />
             </SettingsCard>
           )}
 
           {tab === 'billing' && (
             <SettingsCard icon={CreditCard} title="Billing & credit" description="Review your current plan and usage credits.">
+              <div className="flex items-center justify-between gap-3 sm:col-span-2">
+                <div>
+                  <p className="font-semibold text-slate-900 dark:text-white">Billing & credit</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Upgrade your package when you need more capacity.</p>
+                </div>
+                <Link to="/app/pricing-plan"><Button type="button" size="sm">Upgrade</Button></Link>
+              </div>
               <PlanBox label="Current plan" value={planName} />
               <PlanBox label="Subscription status" value={workspace.subscription?.status_label || 'Active'} />
               <PlanBox label="Period end" value={workspace.subscription?.current_period_end ? new Date(workspace.subscription.current_period_end).toLocaleDateString() : 'Not available'} />

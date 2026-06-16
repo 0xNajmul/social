@@ -20,6 +20,7 @@ export default function PostDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const startInEditMode = searchParams.get('edit') === '1'
   const [post, setPost] = useState(null)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(null)
@@ -29,10 +30,10 @@ export default function PostDetail() {
   const load = () => api.get(`/admin/posts/${id}`).then(({ data }) => {
     setPost(data.data)
     setForm(toForm(data.data))
-    setEditing(searchParams.get('edit') === '1')
+    setEditing(startInEditMode)
   }).catch(() => setPost(false))
 
-  useEffect(() => { load() }, [id, searchParams])
+  useEffect(() => { load() }, [id, startInEditMode])
 
   const payload = useMemo(() => {
     if (!form) return {}

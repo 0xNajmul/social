@@ -15,6 +15,7 @@ use App\Services\Scheduling\PostScheduler;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class PostController extends Controller
 {
@@ -98,6 +99,27 @@ class PostController extends Controller
         });
 
         return response()->json(['message' => 'Post deleted.']);
+    }
+
+    public function updateStatus(Request $request, Post $post): JsonResponse
+    {
+        $this->authorize('update', $post);
+
+        $data = $request->validate([
+            'status' => ['required', Rule::enum(PostStatus::class)],
+            'scheduled_at' => ['nullable', 'date'],
+        ]);
+
+        $post->fill([
+            'status' => $data['status'],
+            'scheduled_at' => array_key_exists('scheduled_at', $data) ? $data['scheduled_at'] : $post->scheduled_at,
+        ])->save();
+
+        $this->activity->log($post->workspace_id, 'post.status_updated', $post, "Post status changed to {$post->status->value}");
+
+        return response()->json([
+            'data' => new PostResource($post->fresh()->load(['variants.socialAccount', 'media', 'author'])),
+        ]);
     }
 
     /**
