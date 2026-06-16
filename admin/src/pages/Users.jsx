@@ -11,6 +11,7 @@ const EMPTY = { name: '', email: '', password: '', timezone: 'UTC', locale: 'en'
 const USER_COLUMNS = [
   { key: 'user', label: 'User' },
   { key: 'workspaces', label: 'Workspaces' },
+  { key: 'social_accounts', label: 'Accounts' },
   { key: 'access', label: 'Access' },
   { key: 'last_login', label: 'Last login' },
   { key: 'joined', label: 'Joined' },
@@ -163,6 +164,7 @@ export default function Users() {
                       </td>
                     )}
                     {visibleColumns.includes('workspaces') && <td className="px-3 py-2">{user.workspaces_count ?? 0}</td>}
+                    {visibleColumns.includes('social_accounts') && <td className="px-3 py-2">{user.social_accounts_count ?? 0}</td>}
                     {visibleColumns.includes('access') && <td className="px-3 py-2">{user.is_admin ? <div className="flex flex-wrap gap-1.5"><Badge color="rose">Administrator</Badge>{user.admin_role?.name && <Badge color="indigo">{user.admin_role.name}</Badge>}</div> : <Badge>User</Badge>}</td>}
                     {visibleColumns.includes('last_login') && <td className="whitespace-nowrap px-3 py-2 text-slate-500">{user.last_login_at ? new Date(user.last_login_at).toLocaleDateString() : 'Never'}</td>}
                     {visibleColumns.includes('joined') && <td className="whitespace-nowrap px-3 py-2 text-slate-500">{new Date(user.created_at).toLocaleDateString()}</td>}
@@ -236,7 +238,7 @@ function ColumnDrawer({ open, visibleColumns, toggleColumn, onClose }) {
   return (
     <div className={clsx('fixed inset-0 z-50 transition', open ? 'pointer-events-auto' : 'pointer-events-none')} aria-hidden={!open}>
       <button type="button" className={clsx('absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity', open ? 'opacity-100' : 'opacity-0')} onClick={onClose} aria-label="Close filters" />
-      <aside className={clsx('absolute right-0 top-0 flex h-full w-full max-w-sm flex-col border-l border-slate-800 bg-slate-900 shadow-2xl transition-transform duration-300', open ? 'translate-x-0' : 'translate-x-full')}>
+      <aside className={clsx('absolute right-0 top-0 flex h-full w-full max-w-sm flex-col overflow-hidden border-l border-slate-800 bg-slate-900 shadow-2xl transition-transform duration-300', open ? 'translate-x-0' : 'translate-x-full')}>
         <div className="flex items-start justify-between border-b border-slate-800 px-5 py-4">
           <div>
             <h2 className="text-lg font-bold text-white">User table</h2>
@@ -244,7 +246,7 @@ function ColumnDrawer({ open, visibleColumns, toggleColumn, onClose }) {
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
-        <div className="flex-1 space-y-2 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-5">
           {USER_COLUMNS.map((column) => (
             <label key={column.key} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2.5 text-sm text-slate-300">
               <input
@@ -293,8 +295,17 @@ function readColumns() {
     const parsed = JSON.parse(localStorage.getItem('admin_users_columns') || 'null')
     const allowed = USER_COLUMNS.map((column) => column.key)
     const filtered = Array.isArray(parsed) ? parsed.filter((column) => allowed.includes(column)) : []
-    return filtered.length ? filtered : DEFAULT_COLUMNS
+    if (!filtered.length) return DEFAULT_COLUMNS
+
+    return filtered.includes('social_accounts') ? filtered : insertAfter(filtered, 'workspaces', 'social_accounts')
   } catch {
     return DEFAULT_COLUMNS
   }
+}
+
+function insertAfter(items, after, item) {
+  const next = [...items]
+  const index = next.indexOf(after)
+  next.splice(index >= 0 ? index + 1 : next.length, 0, item)
+  return next
 }

@@ -35,6 +35,12 @@ class Automation extends Model
         return $this->belongsTo(Workspace::class);
     }
 
+    /** @return BelongsTo<User, $this> */
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
     /** @return HasMany<RssFeed, $this> */
     public function feeds(): HasMany
     {

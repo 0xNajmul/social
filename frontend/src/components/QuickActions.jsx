@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
   Bot,
@@ -16,10 +17,10 @@ import {
 import clsx from 'clsx'
 import api, { workspaceStore } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import { Button, Card, Input, Modal, Textarea } from './ui'
+import { Button, Input, Modal } from './ui'
 import MediaDropzone from './composer/MediaDropzone'
-import { currentTimezone, timezones } from '../lib/timezones'
-import DateTimeField from './DateTimeField'
+import { currentTimezone, timezoneLabel, timezones } from '../lib/timezones'
+import PlanEditorModal from './planner/PlanEditorModal'
 
 const ComposerContent = lazy(() => import('../pages/Composer').then((module) => ({ default: module.ComposerContent })))
 
@@ -38,11 +39,14 @@ export default function QuickActions() {
   const { reload } = useAuth()
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(null)
-  const menuRef = useRef(null)
+  const desktopMenuRef = useRef(null)
+  const mobileMenuRef = useRef(null)
 
   useEffect(() => {
     const close = (event) => {
-      if (!menuRef.current?.contains(event.target)) setOpen(false)
+      const inDesktopMenu = desktopMenuRef.current?.contains(event.target)
+      const inMobileMenu = mobileMenuRef.current?.contains(event.target)
+      if (!inDesktopMenu && !inMobileMenu) setOpen(false)
     }
     const openFromPage = (event) => setActive(event.detail || { type: 'composer' })
 
@@ -64,7 +68,7 @@ export default function QuickActions() {
 
   return (
     <>
-      <div className="relative" ref={menuRef}>
+      <div className="relative hidden sm:block" ref={desktopMenuRef}>
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
@@ -100,6 +104,43 @@ export default function QuickActions() {
         )}
       </div>
 
+      {typeof document !== 'undefined' && createPortal(
+        <div className="sm:hidden" ref={mobileMenuRef}>
+          {open && (
+            <div className="fixed bottom-24 right-4 z-[70] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="menu">
+              {ACTIONS.map(({ key, label, description, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => choose(key)}
+                  className="flex w-full items-start gap-3 border-b border-slate-100 px-3 py-2.5 text-left transition last:border-b-0 hover:bg-slate-100 dark:border-slate-700/70 dark:hover:bg-slate-700"
+                  role="menuitem"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{label}</span>
+                    <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{description}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className="fixed bottom-5 right-5 z-[70] flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-xl shadow-brand-600/30 transition hover:bg-brand-700"
+            aria-label={open ? 'Close new menu' : 'Open new menu'}
+            aria-expanded={open}
+            aria-haspopup="menu"
+          >
+            {open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}
+          </button>
+        </div>,
+        document.body,
+      )}
+
       <Modal open={modalType === 'composer'} title="New post" description="Compose a post without leaving this page." onClose={closeModal} size="screen" fullscreenable>
         <div className="p-5">
           <Suspense fallback={<div className="flex h-48 items-center justify-center text-sm text-slate-500 dark:text-slate-400">Loading composer...</div>}>
@@ -108,9 +149,15 @@ export default function QuickActions() {
         </div>
       </Modal>
 
-      <Modal open={modalType === 'planner'} title="New planner" description="Save a quick plan or note into Planner." onClose={closeModal} size="lg" fullscreenable>
-        <PlannerQuickForm onDone={closeModal} initialScheduledAt={active?.scheduledAt} />
-      </Modal>
+      {modalType === 'planner' && (
+        <PlanEditorModal
+          key={`planner-${active?.scheduledAt || 'new'}`}
+          open
+          initialScheduledAt={active?.scheduledAt}
+          onClose={closeModal}
+          onSaved={() => window.dispatchEvent(new CustomEvent('postflow:refresh-planner'))}
+        />
+      )}
 
       <Modal open={modalType === 'account'} title="Connect account" description="Open the account connector from anywhere." onClose={closeModal} size="md">
         <div className="space-y-4 p-5">
@@ -136,49 +183,6 @@ export default function QuickActions() {
       </Modal>
     </>
   )
-}
-
-function PlannerQuickForm({ onDone, initialScheduledAt }) {
-  const [form, setForm] = useState({ title: '', content: '', scheduled_at: toLocalDateTimeInput(initialScheduledAt) })
-  const [busy, setBusy] = useState(false)
-
-  const save = async (event) => {
-    event.preventDefault()
-    setBusy(true)
-    try {
-      await api.post('/planner-notes', {
-        title: form.title,
-        content_html: textToHtml(form.content),
-        scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
-      })
-      onDone()
-      window.dispatchEvent(new CustomEvent('postflow:refresh-planner'))
-    } catch (error) {
-      alert(error.response?.data?.message || 'Could not create planner note.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <form onSubmit={save} className="space-y-4 p-5">
-      <Input label="Plan title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required placeholder="Launch plan" />
-      <DateTimeField label="Schedule date" type="datetime-local" value={form.scheduled_at} onChange={(event) => setForm({ ...form, scheduled_at: event.target.value })} />
-      <Textarea label="Plan content" rows={7} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} required placeholder="Notes, brief, hooks, campaign ideas..." />
-      <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-        <Button type="button" variant="ghost" onClick={onDone}>Cancel</Button>
-        <Button type="submit" loading={busy}><ClipboardList className="h-4 w-4" /> Save planner</Button>
-      </div>
-    </form>
-  )
-}
-
-function toLocalDateTimeInput(value) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 16)
 }
 
 function MediaUploadQuickForm({ onDone }) {
@@ -222,7 +226,7 @@ function WorkspaceQuickForm({ onDone, reload }) {
       <label className="block">
         <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Timezone</span>
         <select value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-          {timezones().map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
+          {timezones().map((timezone) => <option key={timezone} value={timezone}>{timezoneLabel(timezone)}</option>)}
         </select>
       </label>
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
@@ -334,22 +338,4 @@ function AutomationQuickForm({ onDone }) {
       </div>
     </form>
   )
-}
-
-function textToHtml(value) {
-  return String(value || '')
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
-    .join('')
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
 }

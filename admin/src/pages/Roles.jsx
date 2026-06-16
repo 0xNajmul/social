@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Edit3, KeyRound, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Edit3, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
 import { Badge, Button, Card, Input, Modal, PageLoader, Textarea } from '../components/ui'
@@ -145,76 +145,56 @@ export default function Roles() {
       {message && <Notice message={message} />}
 
       {!roles ? <PageLoader /> : (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-left text-xs">
-                <thead className="border-b border-slate-800 bg-slate-800/30 uppercase text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 font-semibold">Role</th>
-                    <th className="px-3 py-2 font-semibold">Permissions</th>
-                    <th className="px-3 py-2 font-semibold">Admins</th>
-                    <th className="px-3 py-2 text-right font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {filteredRoles.map((role) => {
-                    const enabled = PERMISSIONS.filter((permission) => role.permissions?.[permission.key])
-                    return (
-                      <tr key={role.id} className="text-slate-300 transition hover:bg-slate-800/35">
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-3">
-                            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600/20 text-brand-300"><ShieldCheck className="h-4 w-4" /></span>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-semibold text-white">{role.name}</p>
-                                {role.is_system && <Badge color="indigo">System</Badge>}
-                              </div>
-                              <p className="mt-0.5 max-w-md truncate text-[11px] text-slate-500">{role.description || role.slug}</p>
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-left text-xs">
+              <thead className="border-b border-slate-800 bg-slate-800/30 uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Role</th>
+                  <th className="px-3 py-2 font-semibold">Permissions</th>
+                  <th className="px-3 py-2 font-semibold">Admins</th>
+                  <th className="px-3 py-2 text-right font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {filteredRoles.map((role) => {
+                  const enabled = PERMISSIONS.filter((permission) => role.permissions?.[permission.key])
+                  return (
+                    <tr key={role.id} className="text-slate-300 transition hover:bg-slate-800/35">
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600/20 text-brand-300"><ShieldCheck className="h-4 w-4" /></span>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-white">{role.name}</p>
+                              {role.is_system && <Badge color="indigo">System</Badge>}
                             </div>
+                            <p className="mt-0.5 max-w-md truncate text-[11px] text-slate-500">{role.description || role.slug}</p>
                           </div>
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="flex max-w-xl flex-wrap gap-1.5">
-                            {enabled.slice(0, 5).map((permission) => <Badge key={permission.key} color="slate">{permission.label}</Badge>)}
-                            {enabled.length > 5 && <Badge color="violet">+{enabled.length - 5}</Badge>}
-                            {enabled.length === 0 && <span className="text-slate-500">No permissions</span>}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-slate-400">{role.users_count || 0}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex justify-end gap-1.5">
-                            <ActionIcon tone="edit" label={`Edit ${role.name}`} title="Edit role" onClick={() => openEdit(role)}><Edit3 className="h-3.5 w-3.5" /></ActionIcon>
-                            <ActionIcon tone="delete" label={`Delete ${role.name}`} title="Delete role" disabled={role.is_system || Number(role.users_count || 0) > 0} onClick={() => setConfirmDelete(role)}><Trash2 className="h-3.5 w-3.5" /></ActionIcon>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  {filteredRoles.length === 0 && <tr><td colSpan="4" className="px-3 py-10 text-center text-slate-500">No roles found.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          <Card className="p-5">
-            <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600/20 text-brand-300"><KeyRound className="h-5 w-5" /></span>
-              <div>
-                <h2 className="font-bold text-white">Permission groups</h2>
-                <p className="mt-1 text-sm text-slate-400">Use roles for admin-panel access patterns. Workspace roles still control user workspaces.</p>
-              </div>
-            </div>
-            <div className="mt-5 space-y-3">
-              {Object.entries(groupedPermissions).map(([group, permissions]) => (
-                <div key={group} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-                  <p className="text-sm font-semibold text-slate-200">{group}</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">{permissions.map((permission) => permission.label).join(', ')}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex max-w-3xl flex-wrap gap-1.5">
+                          {enabled.slice(0, 8).map((permission) => <Badge key={permission.key} color="slate">{permission.label}</Badge>)}
+                          {enabled.length > 8 && <Badge color="violet">+{enabled.length - 8}</Badge>}
+                          {enabled.length === 0 && <span className="text-slate-500">No permissions</span>}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-slate-400">{role.users_count || 0}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex justify-end gap-1.5">
+                          <ActionIcon tone="edit" label={`Edit ${role.name}`} title="Edit role" onClick={() => openEdit(role)}><Edit3 className="h-3.5 w-3.5" /></ActionIcon>
+                          <ActionIcon tone="delete" label={`Delete ${role.name}`} title="Delete role" disabled={role.is_system || Number(role.users_count || 0) > 0} onClick={() => setConfirmDelete(role)}><Trash2 className="h-3.5 w-3.5" /></ActionIcon>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {filteredRoles.length === 0 && <tr><td colSpan="4" className="px-3 py-10 text-center text-slate-500">No roles found.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       <Modal open={Boolean(editing)} title={editing === 'new' ? 'Create role' : 'Edit role'} description="Choose the admin permissions this role should grant." onClose={close} size="xl">

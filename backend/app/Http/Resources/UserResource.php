@@ -28,6 +28,7 @@ class UserResource extends JsonResource
             'current_workspace_id' => $this->current_workspace_id,
             'role' => $this->whenPivotLoaded('workspace_users', fn () => $this->pivot->role),
             'workspaces_count' => $this->whenCounted('workspaces'),
+            'social_accounts_count' => $this->whenCounted('socialAccounts'),
             'workspaces' => WorkspaceResource::collection($this->whenLoaded('workspaces')),
             'last_login_at' => $this->last_login_at,
             'created_at' => $this->created_at,

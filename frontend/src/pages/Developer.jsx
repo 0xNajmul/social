@@ -9,6 +9,7 @@ export default function Developer() {
   const [keys, setKeys] = useState(null)
   const [hooks, setHooks] = useState([])
   const [newKey, setNewKey] = useState('')
+  const [newKeyCopied, setNewKeyCopied] = useState(false)
   const [keyName, setKeyName] = useState('')
   const [hookUrl, setHookUrl] = useState('')
   const [keyModalOpen, setKeyModalOpen] = useState(false)
@@ -30,6 +31,7 @@ export default function Developer() {
     setBusy('key')
     try {
       const { data } = await api.post('/developer/api-keys', { name: keyName.trim() })
+      setNewKeyCopied(false)
       setNewKey(data.secret)
       setKeyName('')
       setKeyModalOpen(false)
@@ -77,6 +79,12 @@ export default function Developer() {
     }
   }
 
+  const copyNewKey = async () => {
+    await copyText(newKey)
+    setNewKeyCopied(true)
+    window.setTimeout(() => setNewKeyCopied(false), 1600)
+  }
+
   if (!keys) return <PageLoader />
 
   return (
@@ -93,7 +101,16 @@ export default function Developer() {
               <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Your new API key is shown once</p>
               <code className="mt-2 block truncate rounded-lg bg-white px-3 py-2 text-sm text-slate-800 dark:bg-slate-900 dark:text-slate-100">{newKey}</code>
             </div>
-            <Button type="button" size="sm" variant="secondary" onClick={() => copyText(newKey)}><Copy className="h-3.5 w-3.5" /> Copy key</Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={copyNewKey}
+              className={`min-w-28 transition-all duration-200 ${newKeyCopied ? 'border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' : ''}`}
+            >
+              {newKeyCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              <span className={`transition-transform duration-200 ${newKeyCopied ? 'scale-105' : 'scale-100'}`}>{newKeyCopied ? 'Copied' : 'Copy key'}</span>
+            </Button>
           </div>
         </Card>
       )}
@@ -105,7 +122,7 @@ export default function Developer() {
         actionLabel="New key"
         onAction={() => setKeyModalOpen(true)}
       >
-        <ApiKeysTable keys={keys} onCopy={(key) => copyText(keyIdentifier(key))} onRevoke={setConfirmKey} />
+        <ApiKeysTable keys={keys} onRevoke={setConfirmKey} />
       </DeveloperCard>
 
       <DeveloperCard
@@ -188,7 +205,7 @@ function DeveloperCard({ icon: Icon, title, description, actionLabel, onAction, 
   )
 }
 
-function ApiKeysTable({ keys, onCopy, onRevoke }) {
+function ApiKeysTable({ keys, onRevoke }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-left text-sm">
@@ -208,7 +225,6 @@ function ApiKeysTable({ keys, onCopy, onRevoke }) {
               <td className="px-5 py-4 text-slate-500 dark:text-slate-400">{key.last_used_at ? new Date(key.last_used_at).toLocaleString() : 'Never'}</td>
               <td className="px-5 py-4">
                 <div className="flex justify-end gap-1.5">
-                  <IconButton label="Copy key identifier" onClick={() => onCopy(key)}><Copy className="h-3.5 w-3.5" /></IconButton>
                   <IconButton label="Revoke key" tone="danger" onClick={() => onRevoke(key)}><Trash2 className="h-3.5 w-3.5" /></IconButton>
                 </div>
               </td>
@@ -271,5 +287,5 @@ function keyIdentifier(key) {
 }
 
 function copyText(value) {
-  navigator.clipboard?.writeText(value)
+  return navigator.clipboard?.writeText(value)
 }

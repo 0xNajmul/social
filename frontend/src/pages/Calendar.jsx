@@ -31,10 +31,12 @@ const LOCKED_STATUSES = ['published', 'publishing']
 export default function Calendar({
   embedded = false,
   filter = 'all',
+  items = null,
   plannerNotes = [],
   showPlannerData = false,
   showSocialData = true,
   onOpenItem = null,
+  onItemChanged = null,
 }) {
   const navigate = useNavigate()
   const [cursor, setCursor] = useState(() => new Date())
@@ -51,9 +53,14 @@ export default function Calendar({
   const from = fmt(range.start)
   const to = fmt(range.end)
   const rangeKey = `${view}:${from}:${to}`
-  const posts = calendarData.key === rangeKey ? calendarData.posts : null
+  const usingExternalItems = Array.isArray(items)
+  const posts = usingExternalItems ? items : calendarData.key === rangeKey ? calendarData.posts : null
   const allPlannerNotes = useMemo(() => [...createdPlannerNotes, ...(plannerNotes || [])], [createdPlannerNotes, plannerNotes])
   const calendarItems = useMemo(() => {
+    if (usingExternalItems) {
+      return (items || []).filter((item) => Boolean(item.scheduled_at)).sort(comparePosts)
+    }
+
     const socialItems = showSocialData ? (posts || []).map((post) => ({ ...post, kind: post.kind || 'post' })) : []
     const planItems = showPlannerData
       ? allPlannerNotes.map(noteToCalendarItem).filter((item) => Boolean(item.scheduled_at))
@@ -62,9 +69,11 @@ export default function Calendar({
     return [...socialItems, ...planItems]
       .filter((item) => filter === 'all' || filter === 'custom' || calendarGroupFor(item) === filter)
       .sort(comparePosts)
-  }, [allPlannerNotes, filter, posts, showPlannerData, showSocialData])
+  }, [allPlannerNotes, filter, items, posts, showPlannerData, showSocialData, usingExternalItems])
 
   useEffect(() => {
+    if (usingExternalItems) return undefined
+
     let active = true
     api.get('/calendar', { params: { from, to } })
       .then(({ data }) => {
@@ -74,7 +83,7 @@ export default function Calendar({
         if (active) setCalendarData({ key: rangeKey, posts: [] })
       })
     return () => { active = false }
-  }, [from, rangeKey, to])
+  }, [from, rangeKey, to, usingExternalItems])
 
   const byDay = useMemo(() => {
     const map = {}
@@ -88,11 +97,17 @@ export default function Calendar({
   }, [calendarItems])
 
   const replacePost = (updatedPost) => {
-    setCalendarData((current) => ({
-      ...current,
-      posts: current.posts.map((post) => post.id === updatedPost.id ? updatedPost : post),
-    }))
-    setSelectedPost((current) => current?.id === updatedPost.id ? updatedPost : current)
+    const nextPost = { ...updatedPost, kind: updatedPost.kind || 'post' }
+
+    if (usingExternalItems) {
+      onItemChanged?.(nextPost)
+    } else {
+      setCalendarData((current) => ({
+        ...current,
+        posts: current.posts.map((post) => post.id === nextPost.id ? nextPost : post),
+      }))
+    }
+    setSelectedPost((current) => current?.id === nextPost.id ? nextPost : current)
   }
 
   const reschedulePost = async (post, nextDate) => {
@@ -125,7 +140,7 @@ export default function Calendar({
   }
 
   const movePost = (postId, targetDay, hour = null) => {
-    const post = posts?.find((item) => item.id === postId)
+    const post = posts?.find((item) => item.kind !== 'planner' && item.id === postId)
     if (!post || !canReschedule(post)) return
 
     const current = new Date(post.scheduled_at)

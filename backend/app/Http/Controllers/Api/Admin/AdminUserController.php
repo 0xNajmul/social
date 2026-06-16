@@ -17,6 +17,7 @@ class AdminUserController extends Controller
         $users = User::query()
             ->with('adminRole')
             ->withCount('workspaces')
+            ->withCount('socialAccounts')
             ->when($request->search, fn ($q, $s) => $q->where(fn ($w) => $w->where('name', 'like', "%{$s}%")->orWhere('email', 'like', "%{$s}%")))
             ->latest()
             ->paginate($request->integer('per_page', 25));

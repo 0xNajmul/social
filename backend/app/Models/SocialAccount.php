@@ -42,6 +42,12 @@ class SocialAccount extends Model
         return $this->belongsTo(Workspace::class);
     }
 
+    /** @return BelongsTo<User, $this> */
+    public function connector(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'connected_by');
+    }
+
     /** @return HasMany<PostVariant, $this> */
     public function variants(): HasMany
     {

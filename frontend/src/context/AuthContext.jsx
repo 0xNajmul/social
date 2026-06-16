@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import api, { tokenStore, workspaceStore } from '../lib/api'
 
@@ -22,6 +23,9 @@ export function AuthProvider({ children }) {
       if (slug) {
         workspaceStore.set(slug)
         setActiveWorkspace(data.workspaces.find((w) => w.slug === slug) || data.workspaces[0])
+      } else {
+        workspaceStore.clear()
+        setActiveWorkspace(null)
       }
     } catch {
       tokenStore.clear()
@@ -31,6 +35,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadMe()
   }, [loadMe])
 

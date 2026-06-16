@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bold, Check, Edit3, Italic, LayoutGrid, List, ListFilter, Plus, Search, Sparkles, Table2, Tags, Trash2, Underline, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Edit3, LayoutGrid, ListFilter, Plus, Search, Table2, Tags, Trash2, X } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
-import { Badge, Button, Card, Input, Modal, PageLoader, Textarea, ConfirmDialog } from '../components/ui'
+import { Badge, Button, Card, PageLoader, ConfirmDialog } from '../components/ui'
+import PlanEditorModal from '../components/planner/PlanEditorModal'
 
 export default function Planner() {
   const [notes, setNotes] = useState(null)
@@ -10,13 +11,8 @@ export default function Planner() {
   const [view, setView] = useState(() => localStorage.getItem('planner_notes_view') || 'card')
   const [planOpen, setPlanOpen] = useState(false)
   const [editingNote, setEditingNote] = useState(null)
-  const [planForm, setPlanForm] = useState({ title: '', content_html: '', ai_prompt: '', categories: '', tags: '' })
-  const [planErrors, setPlanErrors] = useState({})
-  const [planBusy, setPlanBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(null)
-  const [aiBusy, setAiBusy] = useState(false)
-  const [aiPanelOpen, setAiPanelOpen] = useState(true)
   const [filterOpen, setFilterOpen] = useState(false)
   const [selectedCategories, setSelectedCategories] = useState([])
   const [selectedTags, setSelectedTags] = useState([])
@@ -36,6 +32,11 @@ export default function Planner() {
   }, [])
 
   useEffect(() => {
+    window.addEventListener('postflow:refresh-planner', loadNotes)
+    return () => window.removeEventListener('postflow:refresh-planner', loadNotes)
+  }, [])
+
+  useEffect(() => {
     storePlannerTerms('planner_custom_categories', customCategories)
   }, [customCategories])
 
@@ -45,30 +46,17 @@ export default function Planner() {
 
   const openCreatePlan = () => {
     setEditingNote(null)
-    setPlanForm({ title: '', content_html: '', ai_prompt: '', categories: '', tags: '' })
-    setPlanErrors({})
-    setAiPanelOpen(true)
     setPlanOpen(true)
   }
 
   const openEditPlan = (note) => {
     setEditingNote(note)
-    setPlanForm({
-      title: note.title || '',
-      content_html: note.content_html || '',
-      ai_prompt: note.meta?.ai_prompt || '',
-      categories: (note.meta?.categories || []).join(', '),
-      tags: (note.meta?.tags || []).join(', '),
-    })
-    setPlanErrors({})
-    setAiPanelOpen(false)
     setPlanOpen(true)
   }
 
   const closePlan = () => {
     setPlanOpen(false)
     setEditingNote(null)
-    setPlanErrors({})
   }
 
   const changeView = (nextView) => {
@@ -101,56 +89,6 @@ export default function Planner() {
 
   const toggleTag = (tag) => {
     setSelectedTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag])
-  }
-
-  const generatePlanContent = async () => {
-    setAiBusy(true)
-    setPlanErrors({})
-    try {
-      const topic = planForm.ai_prompt || planForm.title || plainText(planForm.content_html) || 'Create a practical social content plan'
-      const { data } = await api.post('/ai/generate', {
-        type: 'caption',
-        topic,
-        content: plainText(planForm.content_html),
-        tone: 'professional',
-      })
-      const generated = textToHtml(data.result || '')
-      setPlanForm((current) => ({
-        ...current,
-        content_html: current.content_html ? `${current.content_html}<p><br></p>${generated}` : generated,
-      }))
-    } catch (aiError) {
-      setPlanErrors({ ai: aiError.response?.data?.message || 'Could not generate AI content right now.' })
-    } finally {
-      setAiBusy(false)
-    }
-  }
-
-  const savePlan = async (event) => {
-    event.preventDefault()
-    setPlanBusy(true)
-    setPlanErrors({})
-    try {
-      const payload = {
-        title: planForm.title,
-        content_html: planForm.content_html,
-        ai_prompt: planForm.ai_prompt,
-        categories: splitList(planForm.categories),
-        tags: splitList(planForm.tags),
-      }
-      const { data } = editingNote
-        ? await api.put(`/planner-notes/${editingNote.id}`, payload)
-        : await api.post('/planner-notes', payload)
-      setNotes((current) => {
-        if (editingNote) return (current || []).map((note) => note.id === editingNote.id ? data.data : note)
-        return [data.data, ...(current || [])]
-      })
-      closePlan()
-    } catch (saveError) {
-      setPlanErrors(saveError.response?.data?.errors || { general: saveError.response?.data?.message || 'Could not save this plan.' })
-    } finally {
-      setPlanBusy(false)
-    }
   }
 
   const deletePlan = async () => {
@@ -255,75 +193,20 @@ export default function Planner() {
         )}
       </Card>
 
-      <Modal
-        open={planOpen}
-        title={editingNote ? 'Edit plan' : 'Create plan'}
-        description={editingNote ? 'Update this saved plan, note, or campaign brief.' : 'Write a planning note, campaign brief, or AI-assisted draft and save it to this workspace.'}
-        onClose={closePlan}
-        size="xl"
-        fullscreenable
-      >
-        <form onSubmit={savePlan} className="space-y-5 p-5">
-          {planErrors.general && <Notice type="error">{planErrors.general}</Notice>}
-          {planErrors.ai && <Notice type="error">{planErrors.ai}</Notice>}
-
-          <div className={clsx('grid gap-4', aiPanelOpen ? 'lg:grid-cols-[1fr_18rem]' : 'lg:grid-cols-[1fr_auto]')}>
-            <div className="space-y-4">
-              <Input
-                label="Plan title"
-                value={planForm.title}
-                onChange={(event) => setPlanForm({ ...planForm, title: event.target.value })}
-                error={planErrors.title?.[0]}
-                placeholder="Launch week content plan"
-                required
-              />
-              <Input
-                label="Categories"
-                value={planForm.categories}
-                onChange={(event) => setPlanForm({ ...planForm, categories: event.target.value })}
-                placeholder="Campaign, Launch, Ideas"
-              />
-              <Input
-                label="Tags"
-                value={planForm.tags}
-                onChange={(event) => setPlanForm({ ...planForm, tags: event.target.value })}
-                placeholder="Evergreen, LinkedIn, Q3"
-              />
-              <RichTextEditor
-                value={planForm.content_html}
-                onChange={(content_html) => setPlanForm({ ...planForm, content_html })}
-                error={planErrors.content_html?.[0]}
-              />
-            </div>
-            <div className={clsx('rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/50', !aiPanelOpen && 'flex items-start')}>
-              <button type="button" onClick={() => setAiPanelOpen((value) => !value)} className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-brand-600 shadow-sm transition hover:bg-brand-50 dark:bg-slate-800 dark:text-brand-300 dark:hover:bg-slate-700">
-                <Sparkles className="h-4 w-4" /> AI
-              </button>
-              {aiPanelOpen && <div className="mt-3 space-y-3">
-              <div>
-                <p className="font-semibold text-slate-900 dark:text-white">AI assistant</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Describe what you want and AI will add a professional draft into the editor.</p>
-              </div>
-              <Textarea
-                label="Prompt"
-                rows={5}
-                value={planForm.ai_prompt}
-                onChange={(event) => setPlanForm({ ...planForm, ai_prompt: event.target.value })}
-                placeholder="Generate a 7-day content plan for our new feature launch..."
-              />
-              <Button type="button" variant="secondary" className="w-full" onClick={generatePlanContent} loading={aiBusy}>
-                <Sparkles className="h-4 w-4" /> Generate content
-              </Button>
-              </div>}
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
-            <Button type="button" variant="ghost" onClick={closePlan}>Cancel</Button>
-            <Button type="submit" loading={planBusy}><Check className="h-4 w-4" /> {editingNote ? 'Update plan' : 'Save plan'}</Button>
-          </div>
-        </form>
-      </Modal>
+      {planOpen && (
+        <PlanEditorModal
+          key={editingNote ? `edit-${editingNote.id}` : 'create'}
+          open
+          note={editingNote}
+          onClose={closePlan}
+          onSaved={(savedNote) => {
+            setNotes((current) => {
+              if (editingNote) return (current || []).map((note) => note.id === editingNote.id ? savedNote : note)
+              return [savedNote, ...(current || [])]
+            })
+          }}
+        />
+      )}
 
       <PlannerFilterDrawer
         open={filterOpen}
@@ -570,7 +453,20 @@ function PlannerNotesCards({ notes, onEdit, onDelete, deleteBusy }) {
   return (
     <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
       {notes.map((note) => (
-        <article key={note.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+        <article
+          key={note.id}
+          role="button"
+          tabIndex={0}
+          title="Open edit popup"
+          onClick={() => onEdit(note)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              onEdit(note)
+            }
+          }}
+          className="cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-brand-200 hover:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/25 dark:border-slate-800 dark:bg-slate-950/50 dark:hover:border-brand-900/70 dark:hover:bg-slate-900/70"
+        >
           <div className="flex items-start justify-between gap-3">
             <h3 className="line-clamp-2 text-sm font-semibold text-slate-900 dark:text-white">{note.title}</h3>
             <Badge color="indigo">Note</Badge>
@@ -581,8 +477,8 @@ function PlannerNotesCards({ notes, onEdit, onDelete, deleteBusy }) {
           <div className="mt-4 flex items-center justify-between gap-3">
             <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{new Date(note.created_at).toLocaleDateString()}</p>
             <div className="flex gap-1.5">
-              <PlanActionIcon tone="edit" label="Edit plan" onClick={() => onEdit(note)}><Edit3 className="h-3.5 w-3.5" /></PlanActionIcon>
-              <PlanActionIcon tone="delete" label="Delete plan" disabled={deleteBusy === note.id} onClick={() => onDelete(note)}><Trash2 className="h-3.5 w-3.5" /></PlanActionIcon>
+              <PlanActionIcon tone="edit" label="Edit plan" onClick={(event) => { event.stopPropagation(); onEdit(note) }}><Edit3 className="h-3.5 w-3.5" /></PlanActionIcon>
+              <PlanActionIcon tone="delete" label="Delete plan" disabled={deleteBusy === note.id} onClick={(event) => { event.stopPropagation(); onDelete(note) }}><Trash2 className="h-3.5 w-3.5" /></PlanActionIcon>
             </div>
           </div>
         </article>
@@ -606,7 +502,19 @@ function PlannerNotesTable({ notes, onEdit, onDelete, deleteBusy }) {
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
           {notes.map((note) => (
-            <tr key={note.id} className="transition hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+            <tr
+              key={note.id}
+              className="cursor-pointer transition hover:bg-slate-50/80 focus-within:bg-slate-50/80 dark:hover:bg-slate-800/40 dark:focus-within:bg-slate-800/40"
+              onClick={() => onEdit(note)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onEdit(note)
+                }
+              }}
+              tabIndex={0}
+              title="Open edit popup"
+            >
               <td className="px-5 py-4">
                 <div className="flex items-center gap-2">
                   <Badge color="indigo">Note</Badge>
@@ -618,8 +526,8 @@ function PlannerNotesTable({ notes, onEdit, onDelete, deleteBusy }) {
               <td className="whitespace-nowrap px-5 py-4 text-slate-500 dark:text-slate-400">{new Date(note.created_at).toLocaleDateString()}</td>
               <td className="px-5 py-4">
                 <div className="flex justify-end gap-1.5">
-                  <PlanActionIcon tone="edit" label="Edit plan" onClick={() => onEdit(note)}><Edit3 className="h-3.5 w-3.5" /></PlanActionIcon>
-                  <PlanActionIcon tone="delete" label="Delete plan" disabled={deleteBusy === note.id} onClick={() => onDelete(note)}><Trash2 className="h-3.5 w-3.5" /></PlanActionIcon>
+                  <PlanActionIcon tone="edit" label="Edit plan" onClick={(event) => { event.stopPropagation(); onEdit(note) }}><Edit3 className="h-3.5 w-3.5" /></PlanActionIcon>
+                  <PlanActionIcon tone="delete" label="Delete plan" disabled={deleteBusy === note.id} onClick={(event) => { event.stopPropagation(); onDelete(note) }}><Trash2 className="h-3.5 w-3.5" /></PlanActionIcon>
                 </div>
               </td>
             </tr>
@@ -657,101 +565,6 @@ function PlanActionIcon({ tone, label, children, ...props }) {
       {children}
     </button>
   )
-}
-
-function RichTextEditor({ value, onChange, error }) {
-  const editorRef = useRef(null)
-
-  useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value || ''
-    }
-  }, [value])
-
-  const run = (command) => {
-    editorRef.current?.focus()
-    document.execCommand(command, false, null)
-    onChange(editorRef.current?.innerHTML || '')
-  }
-
-  return (
-    <div>
-      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Rich text content</span>
-      <div className="overflow-hidden rounded-2xl border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900">
-        <div className="flex flex-wrap gap-1 border-b border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-800/60">
-          <EditorButton label="Bold" onClick={() => run('bold')}><Bold className="h-4 w-4" /></EditorButton>
-          <EditorButton label="Italic" onClick={() => run('italic')}><Italic className="h-4 w-4" /></EditorButton>
-          <EditorButton label="Underline" onClick={() => run('underline')}><Underline className="h-4 w-4" /></EditorButton>
-          <EditorButton label="Bulleted list" onClick={() => run('insertUnorderedList')}><List className="h-4 w-4" /></EditorButton>
-        </div>
-        <div
-          ref={editorRef}
-          contentEditable
-          onInput={(event) => onChange(event.currentTarget.innerHTML)}
-          className="min-h-72 px-4 py-3 text-sm leading-7 text-slate-900 outline-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] dark:text-slate-100"
-          data-placeholder="Write your content plan, campaign notes, hooks, captions, or brief..."
-          suppressContentEditableWarning
-        />
-      </div>
-      {error && <span className="mt-1 block text-xs text-rose-500">{error}</span>}
-    </div>
-  )
-}
-
-function EditorButton({ label, onClick, children }) {
-  return (
-    <button
-      type="button"
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={onClick}
-      className="rounded-lg p-2 text-slate-500 transition hover:bg-white hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
-      aria-label={label}
-      title={label}
-    >
-      {children}
-    </button>
-  )
-}
-
-function Notice({ type = 'success', children }) {
-  return (
-    <div className={clsx(
-      'rounded-xl border px-4 py-3 text-sm',
-      type === 'success'
-        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300'
-        : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300',
-    )}>
-      {children}
-    </div>
-  )
-}
-
-function plainText(html = '') {
-  if (!html) return ''
-  const doc = new DOMParser().parseFromString(String(html), 'text/html')
-  return doc.body.textContent?.trim() || ''
-}
-
-function textToHtml(text = '') {
-  return String(text)
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
-    .join('')
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
-function splitList(value) {
-  return String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
 }
 
 function loadPlannerTerms(key) {

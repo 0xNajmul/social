@@ -107,6 +107,7 @@ export default function Organizer() {
   const [approvalFilter, setApprovalFilter] = useState('both')
   const [selectedAccountIds, setSelectedAccountIds] = useState([])
   const [selectedCategories, setSelectedCategories] = useState([])
+  const [dateFilter, setDateFilter] = useState({ from: '', to: '' })
   const [error, setError] = useState('')
   const [reviewBusy, setReviewBusy] = useState('')
   const [dragBusy, setDragBusy] = useState('')
@@ -188,12 +189,17 @@ export default function Organizer() {
   useEffect(() => {
     const nextView = validParam(searchParams.get('view'), VALID_VIEWS, null)
     const nextFilter = validParam(searchParams.get('filter'), VALID_FILTERS, null)
+    if ((!nextView || nextView === view || !visibleViews.includes(nextView)) && (!nextFilter || nextFilter === filter)) return undefined
 
-    if (nextView && nextView !== view && visibleViews.includes(nextView)) setView(nextView)
-    if (nextFilter && nextFilter !== filter) {
-      setFilter(nextFilter)
-      if (nextFilter !== 'custom') setSelectedGroups(nextFilter === 'all' ? ['all'] : [nextFilter])
-    }
+    const timer = window.setTimeout(() => {
+      if (nextView && nextView !== view && visibleViews.includes(nextView)) setView(nextView)
+      if (nextFilter && nextFilter !== filter) {
+        setFilter(nextFilter)
+        if (nextFilter !== 'custom') setSelectedGroups(nextFilter === 'all' ? ['all'] : [nextFilter])
+      }
+    }, 0)
+
+    return () => window.clearTimeout(timer)
   }, [filter, searchParams, view, visibleViews])
 
   useEffect(() => {
@@ -210,14 +216,24 @@ export default function Organizer() {
     }
 
     if (changed) setSearchParams(params, { replace: true })
-  }, [])
+  }, [filter, searchParams, setSearchParams, view])
 
   useEffect(() => {
     localStorage.setItem('organizer_visible_views', JSON.stringify(visibleViews))
-    if (!visibleViews.includes(view)) {
-      changeView(visibleViews[0] || 'table')
-    }
-  }, [visibleViews])
+    if (visibleViews.includes(view)) return undefined
+
+    const nextView = visibleViews[0] || 'table'
+    const timer = window.setTimeout(() => {
+      setView(nextView)
+      localStorage.setItem('organizer_view', nextView)
+      const params = new URLSearchParams(searchParams)
+      params.set('view', nextView)
+      params.set('filter', filter)
+      setSearchParams(params, { replace: true })
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [filter, searchParams, setSearchParams, view, visibleViews])
 
   useEffect(() => {
     localStorage.setItem('organizer_show_planner_data', String(showPlannerData))
@@ -259,9 +275,10 @@ export default function Organizer() {
       .filter((item) => approvalMatches(item, approvalFilter))
       .filter((item) => accountMatches(item, selectedAccountIds))
       .filter((item) => categoryMatches(item, selectedCategories))
+      .filter((item) => dateRangeMatches(item, dateFilter))
       .filter((item) => !query || `${item.title || ''} ${item.content || ''} ${item.author?.name || ''} ${item.status_label || ''}`.toLowerCase().includes(query))
       .sort((a, b) => compareItems(a, b, sortOrder))
-  }, [approvalFilter, organizerItems, search, selectedAccountIds, selectedCategories, selectedGroups, sortOrder])
+  }, [approvalFilter, dateFilter, organizerItems, search, selectedAccountIds, selectedCategories, selectedGroups, sortOrder])
 
   const reviewPost = async (post, decision) => {
     if (post.kind === 'planner') return
@@ -396,10 +413,12 @@ export default function Organizer() {
             <Calendar
               embedded
               filter={filter}
+              items={filteredItems}
               plannerNotes={plannerNotes}
               showPlannerData={showPlannerData}
               showSocialData={showSocialData}
               onOpenItem={setSelectedItem}
+              onItemChanged={upsertPost}
             />
           </div>
         ) : filteredItems.length === 0 ? (
@@ -428,7 +447,6 @@ export default function Organizer() {
         showSocialData={showSocialData}
         onTogglePlannerData={() => setShowPlannerData((current) => !current)}
         onToggleSocialData={() => setShowSocialData((current) => !current)}
-        filter={filter}
         onFilterChange={changeFilter}
         selectedGroups={selectedGroups}
         onGroupsChange={changeGroups}
@@ -444,9 +462,12 @@ export default function Organizer() {
         selectedCategories={selectedCategories}
         onToggleCategory={(category) => setSelectedCategories((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category])}
         onClearCategories={() => setSelectedCategories([])}
+        dateFilter={dateFilter}
+        onDateFilterChange={setDateFilter}
       />
 
       <OrganizerItemModal
+        key={selectedItem ? `${selectedItem.kind}-${selectedItem.id}` : 'empty'}
         item={selectedItem}
         onClose={() => setSelectedItem(null)}
         onChanged={updateItemFromModal}
@@ -646,7 +667,6 @@ function OrganizerSettingsDrawer({
   showSocialData,
   onTogglePlannerData,
   onToggleSocialData,
-  filter,
   onFilterChange,
   selectedGroups = ['all'],
   onGroupsChange,
@@ -662,6 +682,8 @@ function OrganizerSettingsDrawer({
   selectedCategories = [],
   onToggleCategory,
   onClearCategories,
+  dateFilter = { from: '', to: '' },
+  onDateFilterChange,
 }) {
   useEffect(() => {
     if (!open) return undefined
@@ -762,6 +784,16 @@ function OrganizerSettingsDrawer({
                   <option value="hide_pending">Hide pending approval</option>
                 </select>
               </label>
+              <div>
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Date range</span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <DateTimeField label="From" type="date" value={dateFilter.from} onChange={(event) => onDateFilterChange({ ...dateFilter, from: event.target.value })} />
+                  <DateTimeField label="To" type="date" value={dateFilter.to} onChange={(event) => onDateFilterChange({ ...dateFilter, to: event.target.value })} />
+                </div>
+                {(dateFilter.from || dateFilter.to) && (
+                  <Button type="button" size="sm" variant="ghost" className="mt-2" onClick={() => onDateFilterChange({ from: '', to: '' })}>Clear date filter</Button>
+                )}
+              </div>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Sort</span>
                 <select value={sortOrder} onChange={(event) => onSortOrderChange(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
@@ -845,19 +877,7 @@ function OrganizerItemModal({ item, onClose, onChanged, onDeleted, canApprove, o
   const [metaOpen, setMetaOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [form, setForm] = useState({ status: '', scheduled_at: '', categories: '' })
-
-  useEffect(() => {
-    if (!item) return
-    setEditing(false)
-    setMetaOpen(false)
-    setConfirmDelete(false)
-    setForm({
-      status: item.kind === 'planner' ? groupFor(item) : item.status || 'draft',
-      scheduled_at: toDateTimeInput(item.scheduled_at || ''),
-      categories: (item.note?.meta?.categories || []).join(', '),
-    })
-  }, [item])
+  const [form, setForm] = useState(() => itemForm(item))
 
   if (!item) return null
 
@@ -997,6 +1017,16 @@ function OrganizerItemModal({ item, onClose, onChanged, onDeleted, canApprove, o
   )
 }
 
+function itemForm(item) {
+  if (!item) return { status: '', scheduled_at: '', categories: '' }
+
+  return {
+    status: item.kind === 'planner' ? groupFor(item) : item.status || 'draft',
+    scheduled_at: toDateTimeInput(item.scheduled_at || ''),
+    categories: (item.note?.meta?.categories || []).join(', '),
+  }
+}
+
 function SelectField({ label, value, onChange, options }) {
   return (
     <label className="block">
@@ -1088,6 +1118,34 @@ function categoryMatches(item, selectedCategories) {
   if (!selectedCategories.length) return true
   const categories = getItemCategories(item)
   return categories.some((category) => selectedCategories.includes(category))
+}
+
+function dateRangeMatches(item, dateFilter) {
+  const from = dateFilter?.from
+  const to = dateFilter?.to
+  if (!from && !to) return true
+
+  const itemDate = itemDateTime(item)
+  if (itemDate === null) return false
+
+  if (from) {
+    const fromTime = new Date(`${from}T00:00:00`).getTime()
+    if (!Number.isNaN(fromTime) && itemDate < fromTime) return false
+  }
+
+  if (to) {
+    const toTime = new Date(`${to}T23:59:59.999`).getTime()
+    if (!Number.isNaN(toTime) && itemDate > toTime) return false
+  }
+
+  return true
+}
+
+function itemDateTime(item) {
+  const value = item.scheduled_at || item.published_at || item.updated_at || item.created_at
+  if (!value) return null
+  const time = new Date(value).getTime()
+  return Number.isNaN(time) ? null : time
 }
 
 function splitList(value) {

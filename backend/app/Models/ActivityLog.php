@@ -24,6 +24,12 @@ class ActivityLog extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** @return BelongsTo<Workspace, $this> */
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
+    }
+
     /** @return MorphTo<Model, $this> */
     public function subject(): MorphTo
     {

@@ -35,11 +35,12 @@ const COLUMN_OPTIONS = [
 ]
 
 const DEFAULT_COLUMNS = ['post', 'status', 'workspace', 'author', 'platforms', 'scheduled', 'published', 'actions']
+const INITIAL_FILTERS = { status: '', search: '', workspace: '', author: '', from: '', to: '' }
 
 export default function Posts() {
   const navigate = useNavigate()
   const [posts, setPosts] = useState(null)
-  const [filters, setFilters] = useState({ status: '', search: '', workspace: '', author: '', from: '', to: '' })
+  const [filters, setFilters] = useState(() => ({ ...INITIAL_FILTERS }))
   const [filterOpen, setFilterOpen] = useState(false)
   const [busyPost, setBusyPost] = useState(null)
   const [visibleColumns, setVisibleColumns] = useState(() => readColumns())
@@ -52,7 +53,9 @@ export default function Posts() {
     api.get('/admin/posts', { params: { ...params, per_page: 100 } }).then(({ data }) => setPosts(data.data))
   )
 
-  useEffect(() => { load({ status: '', search: '', workspace: '', author: '', from: '', to: '' }) }, [])
+  useEffect(() => {
+    api.get('/admin/posts', { params: { ...INITIAL_FILTERS, per_page: 100 } }).then(({ data }) => setPosts(data.data))
+  }, [])
 
   const enabledColumns = useMemo(() => (
     COLUMN_OPTIONS.filter((column) => visibleColumns.includes(column.key))
@@ -224,12 +227,12 @@ function FilterDrawer({ open, filters, setFilters, visibleColumns, toggleColumn,
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [onClose, open])
 
-  const reset = () => setFilters({ status: '', search: '', workspace: '', author: '', from: '', to: '' })
+  const reset = () => setFilters({ ...INITIAL_FILTERS })
 
   return (
     <div className={clsx('fixed inset-0 z-50 transition', open ? 'pointer-events-auto' : 'pointer-events-none')} aria-hidden={!open}>
       <button type="button" className={clsx('absolute inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity', open ? 'opacity-100' : 'opacity-0')} onClick={onClose} aria-label="Close filters" />
-      <aside className={clsx('absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-slate-800 bg-slate-900 shadow-2xl transition-transform duration-300', open ? 'translate-x-0' : 'translate-x-full')}>
+      <aside className={clsx('absolute right-0 top-0 flex h-full w-full max-w-md flex-col overflow-hidden border-l border-slate-800 bg-slate-900 shadow-2xl transition-transform duration-300', open ? 'translate-x-0' : 'translate-x-full')}>
         <div className="flex items-start justify-between border-b border-slate-800 px-5 py-4">
           <div>
             <h2 className="text-lg font-bold text-white">Post filters</h2>
@@ -237,8 +240,8 @@ function FilterDrawer({ open, filters, setFilters, visibleColumns, toggleColumn,
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
-        <form onSubmit={onApply} className="flex flex-1 flex-col">
-          <div className="flex-1 space-y-5 overflow-y-auto p-5">
+        <form onSubmit={onApply} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
             <div className="space-y-4">
               <Select label="Status" value={filters.status} onChange={(value) => setFilters({ ...filters, status: value })} options={STATUS_OPTIONS} />
               <Input label="Search" value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Title or content" />

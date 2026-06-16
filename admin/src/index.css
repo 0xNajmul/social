@@ -10,5 +10,7 @@
 html { font-family: var(--font-sans); }
 body { margin: 0; background-color: #0b1120; color: #e2e8f0; }
 
+html.admin-light body { background-color: #f8fafc; color: #0f172a; }
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }

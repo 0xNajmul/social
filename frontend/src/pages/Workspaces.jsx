@@ -1,17 +1,16 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Building2, Check, Crown, Edit3, LayoutGrid, LogOut, Plus, Sparkles, Table2, Trash2, Users } from 'lucide-react'
+import { Building2, Check, Crown, Edit3, LayoutGrid, LogOut, Plus, Table2, Trash2, Users } from 'lucide-react'
 import clsx from 'clsx'
 import api, { workspaceStore } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import { Badge, Button, Card, Input, Modal, ConfirmDialog } from '../components/ui'
-import { currentTimezone, timezones } from '../lib/timezones'
+import { Badge, Button, Card, ConfirmDialog } from '../components/ui'
+import WorkspaceCreateModal from '../components/workspaces/WorkspaceCreateModal'
 
 export default function Workspaces() {
   const { workspaces, activeWorkspace, switchWorkspace, reload } = useAuth()
   const [view, setView] = useState(() => localStorage.getItem('workspace_view') || 'card')
   const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ name: '', timezone: currentTimezone() })
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
   const [confirmAction, setConfirmAction] = useState(null)
@@ -19,25 +18,6 @@ export default function Workspaces() {
   const changeView = (nextView) => {
     setView(nextView)
     localStorage.setItem('workspace_view', nextView)
-  }
-
-  const createWorkspace = async (event) => {
-    event.preventDefault()
-    setBusy('create')
-    setMessage('')
-    try {
-      const { data } = await api.post('/workspaces', form)
-      workspaceStore.set(data.data.slug)
-      await api.post(`/workspaces/${data.data.slug}/switch`)
-      await reload()
-      setShowCreate(false)
-      setForm({ name: '', timezone: currentTimezone() })
-      window.location.assign('/app/workspaces')
-    } catch (error) {
-      setMessage(error.response?.data?.message || 'Could not create the workspace.')
-    } finally {
-      setBusy('')
-    }
   }
 
   const activate = async (workspace) => {
@@ -107,16 +87,12 @@ export default function Workspaces() {
         </div>
       )}
 
-      <Modal open={showCreate} title="Create another workspace" description="A separate workspace gets its own members, accounts, posts, and plan usage." onClose={() => setShowCreate(false)} size="lg">
-        <form onSubmit={createWorkspace} className="space-y-4 p-5">
-          <Input label="Workspace name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Northstar Studio" required />
-          <TimezoneSelect value={form.timezone} onChange={(timezone) => setForm({ ...form, timezone })} />
-          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-            <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" loading={busy === 'create'}><Sparkles className="h-4 w-4" /> Create workspace</Button>
-          </div>
-        </form>
-      </Modal>
+      <WorkspaceCreateModal
+        open={showCreate}
+        title="Create another workspace"
+        onClose={() => setShowCreate(false)}
+        onCreated={() => window.location.assign('/app/workspaces')}
+      />
 
       <ConfirmDialog
         open={Boolean(confirmAction)}
@@ -219,16 +195,5 @@ function Metric({ icon: Icon, label, value }) {
       <p className="mt-2 truncate text-sm font-bold text-slate-800 dark:text-slate-100">{value}</p>
       <p className="text-[11px] text-slate-400">{label}</p>
     </div>
-  )
-}
-
-function TimezoneSelect({ value, onChange }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Timezone</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" required>
-        {timezones().map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
-      </select>
-    </label>
   )
 }

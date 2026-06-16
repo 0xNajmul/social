@@ -41,6 +41,12 @@ class MediaAsset extends Model
         return $this->belongsTo(MediaFolder::class, 'folder_id');
     }
 
+    /** @return BelongsTo<User, $this> */
+    public function uploader(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'uploaded_by');
+    }
+
     public function getUrlAttribute(): string
     {
         // Relative URL so the Vite dev proxy (/storage → Laravel) serves files correctly.

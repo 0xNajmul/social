@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\AdminDashboardController;
+use App\Http\Controllers\Api\Admin\AdminContentController;
 use App\Http\Controllers\Api\Admin\AdminJobController;
 use App\Http\Controllers\Api\Admin\AdminPlanController;
 use App\Http\Controllers\Api\Admin\AdminPostController;
+use App\Http\Controllers\Api\Admin\AdminReportController;
 use App\Http\Controllers\Api\Admin\AdminRoleController;
 use App\Http\Controllers\Api\Admin\AdminSettingController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
@@ -162,6 +164,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::apiResource('plans', AdminPlanController::class)->except(['show']);
 
+        Route::get('planners', [AdminContentController::class, 'planners']);
+        Route::get('media', [AdminContentController::class, 'media']);
+        Route::get('automations', [AdminContentController::class, 'automations']);
+        Route::get('accounts', [AdminContentController::class, 'accounts']);
+
         Route::get('posts', [AdminPostController::class, 'index']);
         Route::get('posts/{post}', [AdminPostController::class, 'show']);
         Route::put('posts/{post}', [AdminPostController::class, 'update']);
@@ -181,5 +188,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('jobs/failed-posts', [AdminJobController::class, 'failedPosts']);
         Route::get('jobs/failed', [AdminJobController::class, 'failedJobs']);
         Route::post('jobs/retry-failed', [AdminJobController::class, 'retryFailedJobs']);
+
+        Route::get('reports/notifications', [AdminReportController::class, 'notifications']);
+        Route::get('reports/affiliate-incomes', [AdminReportController::class, 'affiliateIncomes']);
+        Route::get('reports/login-history', [AdminReportController::class, 'loginHistory']);
+        Route::get('reports/ai-usage-history', [AdminReportController::class, 'aiUsageHistory']);
+        Route::get('reports/email-history', [AdminReportController::class, 'emailHistory']);
+        Route::get('reports/user-transaction-history', [AdminReportController::class, 'userTransactionHistory']);
+        Route::get('reports/activity-logs', [AdminReportController::class, 'activityLogs']);
     });
 });

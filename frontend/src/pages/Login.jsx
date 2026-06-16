@@ -63,63 +63,86 @@ export default function Login() {
 
 export function AuthShell({ title, subtitle, children }) {
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 dark:bg-slate-950 lg:px-8">
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
-        <aside className="hidden lg:block">
-          <Link to="/" className="mb-8 inline-flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-lg shadow-brand-600/20">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Postflow</span>
-          </Link>
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <div className="grid min-h-screen lg:grid-cols-2">
+        <section className="relative flex min-h-[46vh] flex-col overflow-hidden border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#eef2ff_48%,#ecfeff_100%)] dark:border-slate-800 dark:bg-[linear-gradient(135deg,#0f172a_0%,#111827_55%,#082f49_100%)] lg:min-h-screen lg:border-b-0 lg:border-r">
+          <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(rgba(15,23,42,.07)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.07)_1px,transparent_1px)] [background-size:28px_28px] dark:opacity-30 dark:[background-image:linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)]" />
+          <div className="relative flex h-20 items-center px-6 lg:px-10">
+            <Link to="/" className="inline-flex items-center gap-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-600 text-white shadow-lg shadow-brand-600/20">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <span className="text-2xl font-bold text-slate-950 dark:text-white">Postflow</span>
+            </Link>
+          </div>
 
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/60 bg-white p-8 shadow-2xl shadow-slate-200/70 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20">
-            <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-brand-500/20 blur-3xl" />
-            <div className="absolute -bottom-20 left-10 h-56 w-56 rounded-full bg-sky-400/20 blur-3xl" />
-            <div className="relative">
-              <span className="inline-flex rounded-full bg-brand-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-900/40 dark:text-brand-200">Social automation suite</span>
-              <h2 className="mt-5 max-w-xl text-4xl font-extrabold tracking-tight text-slate-950 dark:text-white">Plan, publish, and measure every channel from one calm workspace.</h2>
-              <p className="mt-4 max-w-lg text-sm leading-6 text-slate-500 dark:text-slate-400">Create reusable publishing workflows, coordinate teams, automate social posts, and keep reporting close to the work.</p>
-
-              <div className="mt-8 grid grid-cols-2 gap-3">
-                <AuthStat icon={CalendarCheck2} label="Scheduled posts" value="12k+" />
-                <AuthStat icon={Users} label="Team actions" value="38k" />
-                <AuthStat icon={BarChart3} label="Tracked impressions" value="4.8M" />
-                <AuthStat icon={ShieldCheck} label="Workspace uptime" value="99.9%" />
+          <div className="relative flex flex-1 items-center justify-center px-6 py-10 lg:px-10">
+            <div className="w-full max-w-xl space-y-4">
+              <div className="rounded-lg border border-white/70 bg-white/85 p-5 shadow-xl shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-900/80 dark:shadow-black/20">
+                <span className="inline-flex rounded-full bg-cyan-50 px-3 py-1 text-xs font-bold uppercase text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-200">Social automation suite</span>
+                <h2 className="mt-4 max-w-lg text-3xl font-extrabold text-slate-950 dark:text-white">Plan, publish, and measure every channel from one calm workspace.</h2>
+                <p className="mt-3 max-w-lg text-sm leading-6 text-slate-600 dark:text-slate-300">Composer, organizer, analytics, media, automations, and approvals stay connected for teams that publish every day.</p>
               </div>
 
-              <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
-                <p className="text-sm font-semibold text-slate-900 dark:text-white">Built for teams that publish daily</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Composer, organizer, analytics, media, automations, and approvals stay connected so campaigns do not drift across tools.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <AuthStat icon={CalendarCheck2} label="Scheduled posts" value="12k+" tone="brand" />
+                <AuthStat icon={Users} label="Team actions" value="38k" tone="emerald" />
+                <AuthStat icon={BarChart3} label="Tracked impressions" value="4.8M" tone="sky" />
+                <AuthStat icon={ShieldCheck} label="Workspace uptime" value="99.9%" tone="amber" />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <AuthInfoCard title="Campaign command" text="Review drafts, approvals, and schedules from one operational view." />
+                <AuthInfoCard title="Connected reporting" text="Keep publishing context and performance signals close together." />
               </div>
             </div>
           </div>
-        </aside>
+        </section>
 
-        <div className="w-full max-w-md justify-self-center lg:justify-self-end">
-          <Link to="/" className="mb-8 flex items-center justify-center gap-2 lg:hidden">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white">
-              <Sparkles className="h-5 w-5" />
+        <section className="flex min-h-[54vh] items-center justify-center bg-white/85 px-6 py-10 dark:bg-slate-950 lg:min-h-screen lg:px-12">
+          <div className="w-full max-w-md">
+            <Link to="/" className="mb-8 flex items-center justify-center gap-2 lg:hidden">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <span className="text-xl font-bold text-slate-900 dark:text-white">Postflow</span>
+            </Link>
+            <div className="rounded-lg border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20">
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{title}</h1>
+              <p className="mb-6 mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+              {children}
             </div>
-            <span className="text-xl font-bold text-slate-900 dark:text-white">Postflow</span>
-          </Link>
-          <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20">
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{title}</h1>
-            <p className="mb-6 mt-1 text-sm text-slate-500">{subtitle}</p>
-            {children}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   )
 }
 
-function AuthStat({ icon: Icon, label, value }) {
+function AuthStat({ icon: Icon, label, value, tone }) {
+  const tones = {
+    brand: 'bg-brand-50 text-brand-600 dark:bg-brand-950/60 dark:text-brand-200',
+    emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-200',
+    sky: 'bg-sky-50 text-sky-600 dark:bg-sky-950/60 dark:text-sky-200',
+    amber: 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-200',
+  }
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
-      <Icon className="h-5 w-5 text-brand-500" />
-      <p className="mt-3 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">{value}</p>
+    <div className="rounded-lg border border-white/80 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/75">
+      <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${tones[tone] || tones.brand}`}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <p className="mt-3 text-2xl font-bold text-slate-950 dark:text-white">{value}</p>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</p>
+    </div>
+  )
+}
+
+function AuthInfoCard({ title, text }) {
+  return (
+    <div className="rounded-lg border border-white/80 bg-white/75 p-4 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/70">
+      <p className="text-sm font-semibold text-slate-900 dark:text-white">{title}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{text}</p>
     </div>
   )
 }

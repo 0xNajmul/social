@@ -11,6 +11,7 @@ const UserDetail = lazy(() => import('./pages/UserDetail'))
 const Roles = lazy(() => import('./pages/Roles'))
 const Posts = lazy(() => import('./pages/Posts'))
 const PostDetail = lazy(() => import('./pages/PostDetail'))
+const AdminDataPage = lazy(() => import('./pages/AdminDataPage'))
 const Plans = lazy(() => import('./pages/Plans'))
 const Workspaces = lazy(() => import('./pages/Workspaces'))
 const Jobs = lazy(() => import('./pages/Jobs'))
@@ -42,8 +43,19 @@ export default function App() {
               <Route path="roles" element={<Roles />} />
               <Route path="posts" element={<Posts />} />
               <Route path="posts/:id" element={<PostDetail />} />
+              <Route path="planners" element={<AdminDataPage type="planners" />} />
+              <Route path="media" element={<AdminDataPage type="media" />} />
+              <Route path="automations" element={<AdminDataPage type="automations" />} />
+              <Route path="accounts" element={<AdminDataPage type="accounts" />} />
               <Route path="plans" element={<Plans />} />
               <Route path="workspaces" element={<Workspaces />} />
+              <Route path="reports/notifications" element={<AdminDataPage type="report-notifications" />} />
+              <Route path="reports/affiliate-incomes" element={<AdminDataPage type="report-affiliate-incomes" />} />
+              <Route path="reports/login-history" element={<AdminDataPage type="report-login-history" />} />
+              <Route path="reports/ai-usage-history" element={<AdminDataPage type="report-ai-usage-history" />} />
+              <Route path="reports/email-history" element={<AdminDataPage type="report-email-history" />} />
+              <Route path="reports/user-transaction-history" element={<AdminDataPage type="report-user-transaction-history" />} />
+              <Route path="reports/activity-logs" element={<AdminDataPage type="report-activity-logs" />} />
               <Route path="jobs" element={<Jobs />} />
               <Route path="profile" element={<Profile />} />
               <Route path="settings" element={<Settings />} />

@@ -68,6 +68,14 @@ class User extends Authenticatable
     }
 
     /**
+     * @return HasMany<SocialAccount, $this>
+     */
+    public function socialAccounts(): HasMany
+    {
+        return $this->hasMany(SocialAccount::class, 'connected_by');
+    }
+
+    /**
      * @return BelongsTo<Workspace, $this>
      */
     public function currentWorkspace(): BelongsTo
