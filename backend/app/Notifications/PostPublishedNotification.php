@@ -29,6 +29,7 @@ class PostPublishedNotification extends Notification
             'type' => 'post.published',
             'title' => 'Post published',
             'message' => "Your post was published to {$this->variant->platform}.",
+            'workspace_id' => $this->variant->post?->workspace_id,
             'post_id' => $this->variant->post_id,
             'platform' => $this->variant->platform,
             'permalink' => $this->variant->permalink,

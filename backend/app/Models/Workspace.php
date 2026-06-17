@@ -18,7 +18,7 @@ class Workspace extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'owner_id', 'name', 'slug', 'logo_path', 'timezone',
+        'owner_id', 'name', 'description', 'slug', 'logo_path', 'timezone',
         'brand_color', 'settings', 'trial_ends_at',
     ];
 
@@ -67,6 +67,12 @@ class Workspace extends Model
     public function invitations(): HasMany
     {
         return $this->hasMany(WorkspaceInvitation::class);
+    }
+
+    /** @return HasMany<WorkspaceInvitation, $this> */
+    public function pendingInvitations(): HasMany
+    {
+        return $this->invitations()->whereNull('accepted_at')->where('expires_at', '>', now());
     }
 
     /** @return HasOne<Subscription, $this> */

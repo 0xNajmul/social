@@ -93,7 +93,7 @@ export default function DashboardLayout() {
   const workspaceCount = workspaces?.length || 0
   const needsWorkspace = workspaceCount === 0
   const totalTeamCount = (workspaces || []).reduce((total, workspace) => total + Number(workspace.members_count || 0), 0)
-  const contentFullWidth = activeWorkspace?.settings?.content_width === 'full'
+  const contentFullWidth = user?.settings?.content_width === 'full' || activeWorkspace?.settings?.content_width === 'full'
   const brandName = branding?.general?.site_name || branding?.platform_name || 'Postflow'
   const logoUrl = branding?.general?.logo_url
   const toggleSidebar = () => {

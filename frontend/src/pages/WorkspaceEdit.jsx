@@ -1,44 +1,52 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Bell, Building2, CalendarClock, Globe2, Save, ShieldCheck } from 'lucide-react'
-import api from '../lib/api'
-import { workspaceStore } from '../lib/api'
+import { ArrowLeft, Bell, Building2, Save, ShieldCheck, UsersRound } from 'lucide-react'
+import api, { workspaceStore } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import { Badge, Button, Card, Input, PageLoader } from '../components/ui'
+import { Badge, Button, Card, Input, PageLoader, Textarea } from '../components/ui'
 import { timezones } from '../lib/timezones'
 
 const DEFAULT_WORKSPACE_SETTINGS = {
-  language: 'en',
-  week_starts_on: 'monday',
-  default_post_time: '09:00',
   approval_required: false,
   email_notifications: true,
   publishing_alerts: true,
   weekly_summary: true,
-  content_width: 'contained',
-  popup_default_stage: '0',
+}
+
+const ROLE_MATRIX = [
+  { role: 'owner', label: 'Owner', permissions: ['Full workspace control', 'Manage billing package', 'Delete workspace', 'Manage every role'] },
+  { role: 'admin', label: 'Admin', permissions: ['Manage members', 'Manage accounts', 'Approve and publish', 'Edit workspace settings'] },
+  { role: 'manager', label: 'Manager', permissions: ['Approve content', 'Manage publishing queue', 'Review team activity'] },
+  { role: 'editor', label: 'Editor', permissions: ['Create and edit content', 'Upload media', 'Publish approved posts'] },
+  { role: 'viewer', label: 'Viewer', permissions: ['View workspace content', 'Review calendars', 'Read analytics'] },
+]
+
+function buildWorkspaceForm(workspace) {
+  return {
+    name: workspace.name || '',
+    description: workspace.description || '',
+    timezone: workspace.timezone || 'UTC',
+    brand_color: workspace.brand_color || '#6366f1',
+    settings: { ...DEFAULT_WORKSPACE_SETTINGS, ...(workspace.settings || {}) },
+  }
 }
 
 export default function WorkspaceEdit() {
   const { id } = useParams()
-  const navigate = useNavigate()
-  const { workspaces, activeWorkspace, switchWorkspace, reload } = useAuth()
+  const { workspaces } = useAuth()
   const workspace = workspaces.find((item) => String(item.id) === String(id))
-  const [form, setForm] = useState(null)
+
+  if (!workspace) return <PageLoader />
+
+  return <WorkspaceEditForm key={workspace.id} workspace={workspace} />
+}
+
+function WorkspaceEditForm({ workspace }) {
+  const navigate = useNavigate()
+  const { activeWorkspace, switchWorkspace, reload } = useAuth()
+  const [form, setForm] = useState(() => buildWorkspaceForm(workspace))
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState(null)
-
-  useEffect(() => {
-    if (!workspace) return
-    setForm({
-      name: workspace.name || '',
-      timezone: workspace.timezone || 'UTC',
-      brand_color: workspace.brand_color || '#6366f1',
-      settings: { ...DEFAULT_WORKSPACE_SETTINGS, ...(workspace.settings || {}) },
-    })
-  }, [workspace])
-
-  if (!workspace || !form) return <PageLoader />
 
   const active = workspace.slug === activeWorkspace?.slug
   const canUpdate = ['owner', 'admin'].includes(workspace.role)
@@ -69,14 +77,17 @@ export default function WorkspaceEdit() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <Link to="/app/workspaces" className="mb-3 inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition hover:text-brand-600 dark:text-slate-400 dark:hover:text-brand-300"><ArrowLeft className="h-4 w-4" /> Back to workspaces</Link>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Edit workspace #{workspace.id}</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Configure workspace identity, timezone, and brand defaults.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Configure workspace identity, brand, role access, and workspace alerts.</p>
         </div>
-        <Badge color={active ? 'indigo' : 'slate'}>{active ? 'Active workspace' : 'Will switch on save'}</Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge color={workspace.role === 'owner' ? 'amber' : 'indigo'}>{formatRole(workspace.role)}</Badge>
+          <Badge color={active ? 'indigo' : 'slate'}>{active ? 'Active workspace' : 'Will switch on save'}</Badge>
+        </div>
       </div>
 
       {message && <div className={`rounded-xl border px-4 py-3 text-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400'}`}>{message.text}</div>}
@@ -97,9 +108,11 @@ export default function WorkspaceEdit() {
               <p className="text-xs text-slate-500 dark:text-slate-400">Workspace slug: {workspace.slug}</p>
             </div>
           </div>
+
           <div className="grid gap-5 p-6 sm:grid-cols-2">
             <Input label="Workspace name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} disabled={!canUpdate} required />
             <TimezoneSelect value={form.timezone} onChange={(timezone) => setForm({ ...form, timezone })} disabled={!canUpdate} />
+            <Textarea label="Description" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} disabled={!canUpdate} className="sm:col-span-2" />
             <label className="block sm:col-span-2">
               <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Brand color</span>
               <div className="flex items-center gap-3">
@@ -110,27 +123,35 @@ export default function WorkspaceEdit() {
           </div>
 
           <WorkspaceSection
-            icon={CalendarClock}
-            title="Publishing defaults"
-            description="Set the defaults your team sees when planning new posts and campaigns."
+            icon={UsersRound}
+            title="Role permissions"
+            description="Workspace roles control what members can do inside this workspace."
           >
-            <SelectField label="Workspace language" value={form.settings.language} onChange={(value) => updateSetting('language', value)} disabled={!canUpdate}>
-              <option value="en">English</option>
-              <option value="bn">Bengali</option>
-              <option value="es">Spanish</option>
-              <option value="fr">French</option>
-              <option value="de">German</option>
-              <option value="ar">Arabic</option>
-            </SelectField>
-            <SelectField label="Week starts on" value={form.settings.week_starts_on} onChange={(value) => updateSetting('week_starts_on', value)} disabled={!canUpdate}>
-              <option value="monday">Monday</option>
-              <option value="sunday">Sunday</option>
-              <option value="saturday">Saturday</option>
-            </SelectField>
-            <Input label="Default post time" type="time" value={form.settings.default_post_time || '09:00'} onChange={(event) => updateSetting('default_post_time', event.target.value)} disabled={!canUpdate} />
+            <div className="grid gap-3 sm:col-span-2">
+              {ROLE_MATRIX.map((item) => (
+                <div key={item.role} className="grid gap-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-800 md:grid-cols-[140px_1fr]">
+                  <div className="flex items-center gap-2">
+                    <Badge color={item.role === 'owner' ? 'amber' : item.role === 'admin' ? 'indigo' : 'slate'}>{item.label}</Badge>
+                    {workspace.role === item.role && <span className="text-xs font-semibold text-brand-600 dark:text-brand-300">Your role</span>}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {item.permissions.map((permission) => (
+                      <span key={permission} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{permission}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </WorkspaceSection>
+
+          <WorkspaceSection
+            icon={ShieldCheck}
+            title="Approval workflow"
+            description="Workspace-specific review gates used by planner and publishing workflows."
+          >
             <SwitchField
               label="Require approval before publishing"
-              description="New posts will enter approval flow before they can be published."
+              description="New posts in this workspace enter review before scheduling or publishing."
               checked={Boolean(form.settings.approval_required)}
               onChange={(checked) => updateSetting('approval_required', checked)}
               disabled={!canUpdate}
@@ -139,37 +160,12 @@ export default function WorkspaceEdit() {
 
           <WorkspaceSection
             icon={Bell}
-            title="Notifications"
-            description="Control workspace-level alerts for publishing and weekly summaries."
+            title="Workspace notifications"
+            description="These alerts apply to this workspace only."
           >
-            <SwitchField label="Email notifications" description="Send important workspace events by email." checked={Boolean(form.settings.email_notifications)} onChange={(checked) => updateSetting('email_notifications', checked)} disabled={!canUpdate} />
-            <SwitchField label="Publishing alerts" description="Notify the team when posts publish or fail." checked={Boolean(form.settings.publishing_alerts)} onChange={(checked) => updateSetting('publishing_alerts', checked)} disabled={!canUpdate} />
-            <SwitchField label="Weekly summary" description="Send a weekly digest of post performance and workspace usage." checked={Boolean(form.settings.weekly_summary)} onChange={(checked) => updateSetting('weekly_summary', checked)} disabled={!canUpdate} />
-          </WorkspaceSection>
-
-          <WorkspaceSection
-            icon={ShieldCheck}
-            title="Workspace experience"
-            description="Fine tune how this workspace opens tools and page content."
-          >
-            <SelectField label="User panel width" value={form.settings.content_width} onChange={(value) => updateSetting('content_width', value)} disabled={!canUpdate}>
-              <option value="contained">Contained width</option>
-              <option value="full">Full width</option>
-            </SelectField>
-            <SelectField label="Default popup size" value={String(form.settings.popup_default_stage ?? '0')} onChange={(value) => updateSetting('popup_default_stage', value)} disabled={!canUpdate}>
-              <option value="0">Small popup</option>
-              <option value="1">Content screen</option>
-              <option value="2">Full screen</option>
-            </SelectField>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40 sm:col-span-2">
-              <div className="flex items-start gap-3">
-                <Globe2 className="mt-0.5 h-5 w-5 text-brand-500" />
-                <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">Workspace ID and slug</p>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Use <span className="font-mono">#{workspace.id}</span> and <span className="font-mono">{workspace.slug}</span> when configuring integrations or support requests.</p>
-                </div>
-              </div>
-            </div>
+            <SwitchField label="Email notifications" description="Send workspace events by email." checked={Boolean(form.settings.email_notifications)} onChange={(checked) => updateSetting('email_notifications', checked)} disabled={!canUpdate} />
+            <SwitchField label="Publishing alerts" description="Notify members when posts publish or fail." checked={Boolean(form.settings.publishing_alerts)} onChange={(checked) => updateSetting('publishing_alerts', checked)} disabled={!canUpdate} />
+            <SwitchField label="Weekly summary" description="Send a weekly digest for this workspace." checked={Boolean(form.settings.weekly_summary)} onChange={(checked) => updateSetting('weekly_summary', checked)} disabled={!canUpdate} />
           </WorkspaceSection>
 
           <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4 dark:border-slate-800">
@@ -196,17 +192,6 @@ function WorkspaceSection({ icon: Icon, title, description, children }) {
       </div>
       <div className="grid gap-5 sm:grid-cols-2">{children}</div>
     </section>
-  )
-}
-
-function SelectField({ label, value, onChange, disabled, children }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-        {children}
-      </select>
-    </label>
   )
 }
 
@@ -237,4 +222,9 @@ function TimezoneSelect({ value, onChange, disabled }) {
       </select>
     </label>
   )
+}
+
+function formatRole(role) {
+  if (!role) return 'No role'
+  return role.charAt(0).toUpperCase() + role.slice(1)
 }

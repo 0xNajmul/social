@@ -14,6 +14,7 @@ export default function Workspaces() {
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
   const [confirmAction, setConfirmAction] = useState(null)
+  const ownedWorkspaceCount = workspaces.filter((workspace) => workspace.role === 'owner').length
 
   const changeView = (nextView) => {
     setView(nextView)
@@ -29,6 +30,11 @@ export default function Workspaces() {
   const removeAccess = async () => {
     const type = confirmAction?.type
     if (!type) return
+    if (type === 'delete' && ownedWorkspaceCount <= 1) {
+      setMessage('You need to keep at least one workspace on your account.')
+      setConfirmAction(null)
+      return
+    }
     setBusy(type)
     setMessage('')
     try {
@@ -78,11 +84,11 @@ export default function Workspaces() {
       {message && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400">{message}</div>}
 
       {view === 'table' ? (
-        <WorkspaceTable workspaces={workspaces} activeWorkspace={activeWorkspace} busy={busy} activate={activate} />
+        <WorkspaceTable workspaces={workspaces} activeWorkspace={activeWorkspace} busy={busy} activate={activate} ownedWorkspaceCount={ownedWorkspaceCount} setConfirmAction={setConfirmAction} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {workspaces.map((workspace) => (
-            <WorkspaceCard key={workspace.id} workspace={workspace} activeWorkspace={activeWorkspace} busy={busy} activate={activate} setConfirmAction={setConfirmAction} />
+            <WorkspaceCard key={workspace.id} workspace={workspace} activeWorkspace={activeWorkspace} busy={busy} activate={activate} ownedWorkspaceCount={ownedWorkspaceCount} setConfirmAction={setConfirmAction} />
           ))}
         </div>
       )}
@@ -107,9 +113,10 @@ export default function Workspaces() {
   )
 }
 
-function WorkspaceCard({ workspace, activeWorkspace, busy, activate, setConfirmAction }) {
+function WorkspaceCard({ workspace, activeWorkspace, busy, activate, ownedWorkspaceCount, setConfirmAction }) {
   const active = workspace.slug === activeWorkspace?.slug
   const owner = workspace.role === 'owner'
+  const canDelete = owner && ownedWorkspaceCount > 1
 
   return (
     <Card className={clsx('relative overflow-hidden p-5 transition', active && 'border-brand-400 ring-2 ring-brand-500/15 dark:border-brand-500')}>
@@ -126,7 +133,7 @@ function WorkspaceCard({ workspace, activeWorkspace, busy, activate, setConfirmA
         {!active && <Button size="sm" onClick={() => activate(workspace)} loading={busy === `switch-${workspace.id}`}><Check className="h-4 w-4" /> Switch</Button>}
         <Link to={`/app/workspaces/${workspace.id}`}><Button size="sm" variant="secondary"><Edit3 className="h-4 w-4" /> Edit</Button></Link>
         {active && (
-          <Button size="sm" variant="ghost" className="ml-auto text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setConfirmAction({ type: owner ? 'delete' : 'leave', workspace })}>
+          <Button size="sm" variant="ghost" className="ml-auto text-rose-600 hover:bg-rose-50 disabled:text-slate-400 dark:text-rose-400 dark:hover:bg-rose-950/30" disabled={owner && !canDelete} title={owner && !canDelete ? 'You need to keep at least one workspace.' : undefined} onClick={() => setConfirmAction({ type: owner ? 'delete' : 'leave', workspace })}>
             {owner ? <Trash2 className="h-4 w-4" /> : <LogOut className="h-4 w-4" />}
             {owner ? 'Delete' : 'Leave'}
           </Button>
@@ -136,7 +143,7 @@ function WorkspaceCard({ workspace, activeWorkspace, busy, activate, setConfirmA
   )
 }
 
-function WorkspaceTable({ workspaces, activeWorkspace, busy, activate }) {
+function WorkspaceTable({ workspaces, activeWorkspace, busy, activate, ownedWorkspaceCount, setConfirmAction }) {
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -158,6 +165,12 @@ function WorkspaceTable({ workspaces, activeWorkspace, busy, activate }) {
                     <div className="flex justify-end gap-2">
                       {!active && <Button size="sm" onClick={() => activate(workspace)} loading={busy === `switch-${workspace.id}`}><Check className="h-4 w-4" /> Switch</Button>}
                       <Link to={`/app/workspaces/${workspace.id}`}><Button size="sm" variant="secondary"><Edit3 className="h-4 w-4" /> Edit</Button></Link>
+                      {active && (
+                        <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50 disabled:text-slate-400 dark:text-rose-400 dark:hover:bg-rose-950/30" disabled={workspace.role === 'owner' && ownedWorkspaceCount <= 1} title={workspace.role === 'owner' && ownedWorkspaceCount <= 1 ? 'You need to keep at least one workspace.' : undefined} onClick={() => setConfirmAction({ type: workspace.role === 'owner' ? 'delete' : 'leave', workspace })}>
+                          {workspace.role === 'owner' ? <Trash2 className="h-4 w-4" /> : <LogOut className="h-4 w-4" />}
+                          {workspace.role === 'owner' ? 'Delete' : 'Leave'}
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -182,6 +195,7 @@ function WorkspaceIdentity({ workspace, compact = false, active = false }) {
           {active && <Badge color="indigo">Active</Badge>}
           {!compact && <Badge color={workspace.role === 'owner' ? 'amber' : 'indigo'}>{workspace.role === 'owner' ? 'Owner' : workspace.role}</Badge>}
         </div>
+        {workspace.description && <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{workspace.description}</p>}
         <p className="mt-1 truncate text-xs text-slate-400">ID #{workspace.id} · {workspace.slug} · {workspace.timezone}</p>
       </div>
     </div>

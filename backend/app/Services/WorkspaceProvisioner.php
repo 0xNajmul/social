@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\DB;
  */
 class WorkspaceProvisioner
 {
-    public function create(User $owner, string $name, ?Plan $plan = null): Workspace
+    public function create(User $owner, string $name, ?Plan $plan = null, ?string $description = null): Workspace
     {
         return DB::transaction(function () use ($owner, $name, $plan) {
             $plan ??= Plan::where('is_active', true)->orderBy('price_monthly')->first();
@@ -26,6 +26,7 @@ class WorkspaceProvisioner
             $workspace = Workspace::create([
                 'owner_id' => $owner->id,
                 'name' => $name,
+                'description' => $description,
                 'timezone' => $owner->timezone ?? 'UTC',
                 'trial_ends_at' => now()->addDays($trialDays),
             ]);

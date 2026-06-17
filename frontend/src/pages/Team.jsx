@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Clock3, Crown, Mail, RefreshCw, Search, ShieldCheck, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { Building2, Clock3, Crown, Mail, RefreshCw, Search, ShieldCheck, Trash2, UserPlus, Users, X } from 'lucide-react'
 import api from '../lib/api'
+import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Input, PageLoader, ConfirmDialog } from '../components/ui'
 
 const ROLE_DETAILS = {
@@ -12,6 +13,7 @@ const ROLE_DETAILS = {
 }
 
 export default function Team() {
+  const { workspaces, activeWorkspace, switchWorkspace } = useAuth()
   const [data, setData] = useState(null)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('editor')
@@ -106,6 +108,18 @@ export default function Team() {
     setConfirmInvitation(null)
   }
 
+  const changeWorkspace = async (slug) => {
+    if (!slug || slug === activeWorkspace?.slug) return
+    setBusy(`workspace-${slug}`)
+    try {
+      await switchWorkspace(slug)
+      window.location.reload()
+    } catch (error) {
+      notify('error', error.response?.data?.message || 'Could not switch workspace.')
+      setBusy('')
+    }
+  }
+
   if (!data) return <PageLoader />
 
   const invitations = data.invitations || []
@@ -131,6 +145,30 @@ export default function Team() {
           {message.text}
         </div>
       )}
+
+      <Card className="p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: activeWorkspace?.brand_color || '#4f46e5' }}>
+              <Building2 className="h-6 w-6" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="truncate text-lg font-bold text-slate-900 dark:text-white">{activeWorkspace?.name || 'Current workspace'}</h2>
+                <Badge color={activeWorkspace?.role === 'owner' ? 'amber' : 'indigo'}>{ROLE_DETAILS[activeWorkspace?.role]?.label || activeWorkspace?.role || 'Member'}</Badge>
+              </div>
+              <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{activeWorkspace?.description || 'Team members and invitations are managed for the selected workspace.'}</p>
+              <p className="mt-1 text-xs text-slate-400">{activeWorkspace?.slug || 'workspace'} · {activeWorkspace?.timezone || 'UTC'}</p>
+            </div>
+          </div>
+          <label className="block w-full lg:w-80">
+            <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Switch workspace team</span>
+            <select value={activeWorkspace?.slug || ''} onChange={(event) => changeWorkspace(event.target.value)} disabled={busy.startsWith('workspace-')} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+              {workspaces.map((workspace) => <option key={workspace.id} value={workspace.slug}>{workspace.name}</option>)}
+            </select>
+          </label>
+        </div>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Summary icon={Users} label="Members" value={data.members.length} tone="brand" />

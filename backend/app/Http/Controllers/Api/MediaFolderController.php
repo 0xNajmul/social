@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\MediaFolder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class MediaFolderController extends Controller
 {
@@ -18,12 +19,17 @@ class MediaFolderController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $workspace = workspace();
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
-            'parent_id' => ['nullable', 'integer', 'exists:media_folders,id'],
+            'parent_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('media_folders', 'id')->where('workspace_id', $workspace->id),
+            ],
         ]);
 
-        $folder = workspace()->mediaFolders()->create($data);
+        $folder = $workspace->mediaFolders()->create($data);
 
         return response()->json(['data' => $folder], 201);
     }

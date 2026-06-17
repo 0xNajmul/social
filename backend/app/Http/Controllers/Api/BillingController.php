@@ -6,8 +6,11 @@ use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PlanResource;
 use App\Http\Resources\SubscriptionResource;
+use App\Http\Resources\WorkspaceResource;
 use App\Models\Plan;
+use App\Models\Workspace;
 use App\Services\ActivityLogger;
+use App\Services\Billing\UsageGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,7 +21,10 @@ use Illuminate\Http\Request;
  */
 class BillingController extends Controller
 {
-    public function __construct(protected ActivityLogger $activity) {}
+    public function __construct(
+        protected ActivityLogger $activity,
+        protected UsageGuard $usage,
+    ) {}
 
     public function plans(): JsonResponse
     {
@@ -29,10 +35,20 @@ class BillingController extends Controller
 
     public function current(): JsonResponse
     {
-        $subscription = workspace()->subscription?->load('plan');
+        $workspace = workspace();
+        $subscription = $this->usage->accountSubscription($workspace);
+        $workspaces = Workspace::where('owner_id', $workspace->owner_id)
+            ->with('subscription.plan')
+            ->withCount(['members', 'pendingInvitations', 'socialAccounts', 'posts', 'automations'])
+            ->latest()
+            ->get();
 
         return response()->json([
             'data' => $subscription ? new SubscriptionResource($subscription) : null,
+            'usage' => $this->usage->usage($workspace),
+            'workspaces' => WorkspaceResource::collection($workspaces),
+            'account_owner_id' => $workspace->owner_id,
+            'account_owner_name' => $workspace->owner?->name,
         ]);
     }
 
@@ -40,6 +56,7 @@ class BillingController extends Controller
     {
         $workspace = workspace();
         $this->authorize('manageBilling', $workspace);
+        abort_unless($workspace->owner_id === $request->user()->id, 403, 'Only the workspace owner can manage the account subscription package.');
 
         $data = $request->validate([
             'plan_id' => ['required', 'integer', 'exists:plans,id'],
@@ -59,24 +76,28 @@ class BillingController extends Controller
         // Demo flow: apply the plan change immediately.
         $period = $data['billing_cycle'] === 'yearly' ? now()->addYear() : now()->addMonth();
 
-        $subscription = $workspace->subscription;
-        if ($subscription) {
-            $subscription->update([
-                'plan_id' => $plan->id,
-                'billing_cycle' => $data['billing_cycle'],
-                'status' => SubscriptionStatus::Active,
-                'current_period_start' => now(),
-                'current_period_end' => $period,
-                'cancel_at_period_end' => false,
-            ]);
-        } else {
-            $subscription = $workspace->subscription()->create([
-                'plan_id' => $plan->id,
-                'billing_cycle' => $data['billing_cycle'],
-                'status' => SubscriptionStatus::Active,
-                'current_period_start' => now(),
-                'current_period_end' => $period,
-            ]);
+        $subscription = null;
+        $ownedWorkspaces = Workspace::where('owner_id', $request->user()->id)->get();
+        foreach ($ownedWorkspaces as $ownedWorkspace) {
+            $subscription = $ownedWorkspace->subscription;
+            if ($subscription) {
+                $subscription->update([
+                    'plan_id' => $plan->id,
+                    'billing_cycle' => $data['billing_cycle'],
+                    'status' => SubscriptionStatus::Active,
+                    'current_period_start' => now(),
+                    'current_period_end' => $period,
+                    'cancel_at_period_end' => false,
+                ]);
+            } else {
+                $subscription = $ownedWorkspace->subscription()->create([
+                    'plan_id' => $plan->id,
+                    'billing_cycle' => $data['billing_cycle'],
+                    'status' => SubscriptionStatus::Active,
+                    'current_period_start' => now(),
+                    'current_period_end' => $period,
+                ]);
+            }
         }
 
         $this->activity->log($workspace->id, 'billing.subscribed', $plan, "Subscribed to {$plan->name}");
@@ -91,11 +112,15 @@ class BillingController extends Controller
     {
         $workspace = workspace();
         $this->authorize('manageBilling', $workspace);
+        abort_unless($workspace->owner_id === request()->user()->id, 403, 'Only the workspace owner can manage the account subscription package.');
 
-        $workspace->subscription?->update([
-            'cancel_at_period_end' => true,
-            'canceled_at' => now(),
-        ]);
+        Workspace::where('owner_id', request()->user()->id)
+            ->with('subscription')
+            ->get()
+            ->each(fn (Workspace $ownedWorkspace) => $ownedWorkspace->subscription?->update([
+                'cancel_at_period_end' => true,
+                'canceled_at' => now(),
+            ]));
 
         return response()->json(['message' => 'Subscription will cancel at the end of the period.']);
     }

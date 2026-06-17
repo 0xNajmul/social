@@ -187,7 +187,7 @@ class AuthController extends Controller
     {
         $user = $request->user()->load([
             'adminRole',
-            'workspaces' => fn ($q) => $q->withCount(['members', 'socialAccounts'])->with('subscription.plan'),
+            'workspaces' => fn ($q) => $q->withCount(['members', 'pendingInvitations', 'socialAccounts'])->with('subscription.plan'),
         ]);
 
         return response()->json([
@@ -207,6 +207,7 @@ class AuthController extends Controller
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'timezone' => ['required', 'timezone:all'],
             'locale' => ['required', 'string', 'max:8'],
+            'settings' => ['nullable', 'array'],
             'avatar' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
         ]);
 
@@ -225,6 +226,9 @@ class AuthController extends Controller
             'email' => $data['email'],
             'timezone' => $data['timezone'],
             'locale' => $data['locale'],
+            'settings' => $request->has('settings')
+                ? array_replace_recursive($user->settings ?? [], $data['settings'] ?? [])
+                : ($user->settings ?? []),
         ])->save();
 
         return response()->json([

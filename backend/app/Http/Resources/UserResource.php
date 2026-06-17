@@ -21,6 +21,7 @@ class UserResource extends JsonResource
             'avatar_url' => $this->avatar_path ? asset('storage/'.$this->avatar_path) : null,
             'timezone' => $this->timezone,
             'locale' => $this->locale,
+            'settings' => $this->settings ?? [],
             'is_admin' => (bool) $this->is_admin,
             'admin_role_id' => $this->admin_role_id,
             'admin_role' => $this->whenLoaded('adminRole'),

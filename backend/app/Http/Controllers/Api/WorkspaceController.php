@@ -21,7 +21,7 @@ class WorkspaceController extends Controller
     public function index(Request $request): JsonResponse
     {
         $workspaces = $request->user()->workspaces()
-            ->withCount(['members', 'socialAccounts'])
+            ->withCount(['members', 'pendingInvitations', 'socialAccounts'])
             ->with('subscription.plan')
             ->get();
 
@@ -32,6 +32,7 @@ class WorkspaceController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:1000'],
             'timezone' => ['nullable', 'string', 'timezone'],
         ]);
 
@@ -43,7 +44,7 @@ class WorkspaceController extends Controller
             'Your current plan does not allow another workspace.',
         );
 
-        $workspace = $this->provisioner->create($request->user(), $data['name']);
+        $workspace = $this->provisioner->create($request->user(), $data['name'], description: $data['description'] ?? null);
 
         if (! empty($data['timezone'])) {
             $workspace->update(['timezone' => $data['timezone']]);
@@ -57,7 +58,7 @@ class WorkspaceController extends Controller
     public function show(Request $request): JsonResponse
     {
         $workspace = workspace()->load(['subscription.plan'])
-            ->loadCount(['members', 'socialAccounts']);
+            ->loadCount(['members', 'pendingInvitations', 'socialAccounts']);
         $role = $request->user()->roleIn($workspace);
 
         return response()->json([
@@ -78,6 +79,7 @@ class WorkspaceController extends Controller
 
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:1000'],
             'timezone' => ['sometimes', 'string', 'timezone'],
             'brand_color' => ['nullable', 'string', 'max:9'],
             'settings' => ['nullable', 'array'],
@@ -92,6 +94,11 @@ class WorkspaceController extends Controller
     {
         $workspace = workspace();
         $this->authorize('delete', $workspace);
+        abort_if(
+            $request->user()->ownedWorkspaces()->whereNull('deleted_at')->count() <= 1,
+            422,
+            'You need to keep at least one workspace on your account.',
+        );
 
         DB::transaction(function () use ($workspace) {
             foreach ($workspace->members()->get() as $member) {

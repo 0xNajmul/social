@@ -24,6 +24,7 @@ class User extends Authenticatable
         'avatar_path',
         'timezone',
         'locale',
+        'settings',
         'is_admin',
         'admin_role_id',
         'current_workspace_id',
@@ -42,6 +43,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
+            'settings' => 'array',
             'two_factor_confirmed_at' => 'datetime',
             'last_login_at' => 'datetime',
         ];

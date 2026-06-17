@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FolderPlus, FolderOpen, Upload, Trash2, FileVideo, Image as ImageIcon, FileText, Search, X, Play, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import clsx from 'clsx'
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, FileVideo, Folder, FolderOpen, FolderPlus, Image as ImageIcon, Loader2, PanelLeftClose, PanelLeftOpen, Pencil, Play, Search, Trash2, Upload, X } from 'lucide-react'
 import api from '../lib/api'
 import { mediaUrl } from '../lib/media'
 import { Card, Button, PageLoader, EmptyState, Input, ConfirmDialog, Modal } from '../components/ui'
@@ -15,8 +16,12 @@ export default function Media() {
   const [uploadQueue, setUploadQueue] = useState([])
   const [folders, setFolders] = useState([])
   const [activeFolder, setActiveFolder] = useState('all')
+  const [folderSidebarOpen, setFolderSidebarOpen] = useState(true)
+  const [expandedFolders, setExpandedFolders] = useState(() => new Set())
   const [folderOpen, setFolderOpen] = useState(false)
   const [folderName, setFolderName] = useState('')
+  const [editingFolder, setEditingFolder] = useState(null)
+  const [confirmFolderDelete, setConfirmFolderDelete] = useState(null)
   const [folderBusy, setFolderBusy] = useState(false)
   const [search, setSearch] = useState('')
   const [previewIndex, setPreviewIndex] = useState(null)
@@ -26,7 +31,7 @@ export default function Media() {
   const uploadControllers = useRef(new Map())
 
   const loadFolders = useCallback(() => {
-    api.get('/media-folders').then(({ data }) => setFolders(data.data || [])).catch(() => setFolders([]))
+    return api.get('/media-folders').then(({ data }) => setFolders(data.data || [])).catch(() => setFolders([]))
   }, [])
 
   const load = useCallback((query = search, folder = activeFolder) =>
@@ -89,6 +94,7 @@ export default function Media() {
       })
       setUploadQueue((current) => current.map((item) => item.id === id ? { ...item, progress: 100, status: 'done' } : item))
       await load()
+      loadFolders()
       window.setTimeout(() => {
         setUploadQueue((current) => current.filter((item) => item.id !== id))
         if (localUrl) URL.revokeObjectURL(localUrl)
@@ -124,6 +130,7 @@ export default function Media() {
     setConfirmDelete(null)
     setDeleting(false)
     load()
+    loadFolders()
   }
 
   const updateAsset = (updated) => {
@@ -131,16 +138,74 @@ export default function Media() {
     loadFolders()
   }
 
-  const createFolder = async (event) => {
+  const folderTree = useMemo(() => buildFolderTree(folders), [folders])
+  const activeFolderRecord = useMemo(() => folders.find((folder) => String(folder.id) === String(activeFolder)), [activeFolder, folders])
+  const allFileCount = folders.reduce((sum, folder) => sum + Number(folder.assets_count || 0), 0) || assets?.length || 0
+
+  const toggleFolder = (folderId) => {
+    setExpandedFolders((current) => {
+      const next = new Set(current)
+      const key = String(folderId)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const openCreateFolder = () => {
+    setEditingFolder(null)
+    setFolderName('')
+    setFolderOpen(true)
+  }
+
+  const openRenameFolder = (folder) => {
+    setEditingFolder(folder)
+    setFolderName(folder.name || '')
+    setFolderOpen(true)
+  }
+
+  const submitFolder = async (event) => {
     event.preventDefault()
     if (!folderName.trim()) return
     setFolderBusy(true)
     try {
-      const { data } = await api.post('/media-folders', { name: folderName.trim() })
-      setFolders((current) => [...current, data.data])
+      const payload = { name: folderName.trim() }
+      const parentId = activeFolderRecord?.id
+      if (!editingFolder && parentId) payload.parent_id = parentId
+      const { data } = editingFolder
+        ? await api.put(`/media-folders/${editingFolder.id}`, payload)
+        : await api.post('/media-folders', payload)
+      setFolders((current) => {
+        if (editingFolder) return current.map((folder) => folder.id === data.data.id ? data.data : folder)
+        return [...current, data.data]
+      })
+      if (!editingFolder && parentId) {
+        setExpandedFolders((current) => new Set([...current, String(parentId)]))
+      }
       setFolderName('')
+      setEditingFolder(null)
       setFolderOpen(false)
       setActiveFolder(data.data.id)
+    } finally {
+      setFolderBusy(false)
+    }
+  }
+
+  const deleteFolder = async () => {
+    if (!confirmFolderDelete) return
+    setFolderBusy(true)
+    try {
+      await api.delete(`/media-folders/${confirmFolderDelete.id}`)
+      const deletedIds = collectFolderIds(confirmFolderDelete)
+      setFolders((current) => current.filter((folder) => !deletedIds.has(String(folder.id))))
+      if (deletedIds.has(String(activeFolder))) {
+        setActiveFolder('all')
+        load(search, 'all')
+      } else {
+        load()
+      }
+      loadFolders()
+      setConfirmFolderDelete(null)
     } finally {
       setFolderBusy(false)
     }
@@ -167,7 +232,7 @@ export default function Media() {
             />
             {search && <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Clear media search"><X className="h-3.5 w-3.5" /></button>}
           </div>
-          <Button variant="secondary" onClick={() => setFolderOpen(true)}>
+          <Button variant="secondary" onClick={openCreateFolder}>
             <FolderPlus className="h-4 w-4" /> New folder
           </Button>
           <Button onClick={() => fileRef.current?.click()} loading={uploading}>
@@ -177,73 +242,101 @@ export default function Media() {
         </div>
       </div>
 
-      <Card className="p-3">
-        <div className="flex gap-2 overflow-x-auto">
-          <FolderChip label="All files" active={activeFolder === 'all'} count={folders.reduce((sum, folder) => sum + Number(folder.assets_count || 0), 0) || assets.length} onClick={() => setActiveFolder('all')} />
-          <FolderChip label="Unfiled" active={activeFolder === 'root'} onClick={() => setActiveFolder('root')} />
-          {folders.map((folder) => (
-            <FolderChip key={folder.id} label={folder.name} active={String(activeFolder) === String(folder.id)} count={folder.assets_count || 0} onClick={() => setActiveFolder(folder.id)} />
-          ))}
-        </div>
-      </Card>
-
       {uploadQueue.length > 0 && <UploadQueue items={uploadQueue} onCancel={cancelUpload} />}
 
-      {assets.length === 0 && uploadQueue.length === 0 ? (
-        <EmptyState
-          icon={ImageIcon}
-          title={search ? 'No matches' : 'No media yet'}
-          description={search ? 'Try a different search term.' : 'Upload your first image or video to get started.'}
-          action={!search && <Button onClick={() => fileRef.current?.click()}>Upload media</Button>}
+      <div className={clsx('grid gap-5', folderSidebarOpen ? 'lg:grid-cols-[300px_minmax(0,1fr)]' : 'lg:grid-cols-[64px_minmax(0,1fr)]')}>
+        <MediaFolderSidebar
+          activeFolder={activeFolder}
+          allFileCount={allFileCount}
+          collapsed={!folderSidebarOpen}
+          expandedFolders={expandedFolders}
+          folderTree={folderTree}
+          folders={folders}
+          onCollapse={() => setFolderSidebarOpen(false)}
+          onCreate={openCreateFolder}
+          onDelete={setConfirmFolderDelete}
+          onExpand={() => setFolderSidebarOpen(true)}
+          onRename={openRenameFolder}
+          onSelect={setActiveFolder}
+          onToggle={toggleFolder}
         />
-      ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {assets.map((m, index) => (
-            <Card key={m.id} className="group relative overflow-hidden p-0">
-              <button
-                type="button"
-                onClick={() => setPreviewIndex(index)}
-                className="block w-full text-left"
-                aria-label={`Preview ${m.original_name}`}
-              >
-                <div className="relative flex aspect-square items-center justify-center bg-slate-100 dark:bg-slate-800">
-                  {m.type === 'video' ? (
-                    <>
-                      <FileVideo className="h-10 w-10 text-slate-400" />
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition group-hover:opacity-100">
-                        <Play className="h-8 w-8 text-white drop-shadow" />
-                      </span>
-                    </>
-                  ) : m.type === 'document' ? (
-                    <FileText className="h-10 w-10 text-slate-400" />
-                  ) : (
-                    <img
-                      src={mediaUrl(m.thumbnail_url || m.url)}
-                      alt={m.original_name}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  )}
-                </div>
-                <div className="p-2">
-                  <p className="truncate text-xs text-slate-600 dark:text-slate-300">{m.original_name}</p>
-                  <p className="text-[10px] text-slate-400">{(m.size / 1024).toFixed(0)} KB</p>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(m)}
-                className="absolute right-2 top-2 rounded-lg bg-white/90 p-1.5 opacity-0 shadow transition group-hover:opacity-100 dark:bg-slate-900/90"
-              >
-                <Trash2 className="h-3.5 w-3.5 text-rose-500" />
-              </button>
-            </Card>
-          ))}
+
+        <div className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">{activeFolder === 'all' ? 'All media files' : activeFolder === 'root' ? 'Unfiled media' : activeFolderRecord?.name || 'Folder'}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{assets.length} file{assets.length === 1 ? '' : 's'} shown{activeFolderRecord ? ' in this folder' : ''}</p>
+            </div>
+            {activeFolderRecord && (
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={() => openRenameFolder(activeFolderRecord)}>
+                  <Pencil className="h-4 w-4" /> Rename
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmFolderDelete(activeFolderRecord)}>
+                  <Trash2 className="h-4 w-4 text-rose-500" /> Delete
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {assets.length === 0 && uploadQueue.length === 0 ? (
+            <EmptyState
+              icon={ImageIcon}
+              title={search ? 'No matches' : 'No media yet'}
+              description={search ? 'Try a different search term.' : activeFolderRecord ? 'Upload files into this folder or create a nested folder to organize the library.' : 'Upload your first image or video to get started.'}
+              action={!search && <Button onClick={() => fileRef.current?.click()}>Upload media</Button>}
+            />
+          ) : (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+              {assets.map((m, index) => (
+                <Card key={m.id} className="group relative overflow-hidden p-0">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewIndex(index)}
+                    className="block w-full text-left"
+                    aria-label={`Preview ${m.original_name}`}
+                  >
+                    <div className="relative flex aspect-square items-center justify-center bg-slate-100 dark:bg-slate-800">
+                      {m.type === 'video' ? (
+                        <>
+                          <FileVideo className="h-10 w-10 text-slate-400" />
+                          <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition group-hover:opacity-100">
+                            <Play className="h-8 w-8 text-white drop-shadow" />
+                          </span>
+                        </>
+                      ) : m.type === 'document' ? (
+                        <FileText className="h-10 w-10 text-slate-400" />
+                      ) : (
+                        <img
+                          src={mediaUrl(m.thumbnail_url || m.url)}
+                          alt={m.original_name}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      )}
+                    </div>
+                    <div className="p-2">
+                      <p className="truncate text-xs text-slate-600 dark:text-slate-300">{m.original_name}</p>
+                      <p className="text-[10px] text-slate-400">{(m.size / 1024).toFixed(0)} KB</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(m)}
+                    className="absolute right-2 top-2 rounded-lg bg-white/90 p-1.5 opacity-0 shadow transition group-hover:opacity-100 dark:bg-slate-900/90"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                  </button>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {preview && (
         <MediaPreviewModal
+          key={preview.id}
           asset={preview}
           hasNavigation={assets.length > 1}
           onClose={() => setPreviewIndex(null)}
@@ -254,12 +347,15 @@ export default function Media() {
         />
       )}
 
-      <Modal open={folderOpen} title="Create folder" description="Organize images, videos, and files by campaign or client." onClose={() => setFolderOpen(false)} size="md">
-        <form onSubmit={createFolder} className="space-y-4 p-5">
+      <Modal open={folderOpen} title={editingFolder ? 'Rename folder' : 'Create folder'} description={editingFolder ? 'Update the folder name everywhere it appears in the media library.' : activeFolderRecord ? `Create a folder inside ${activeFolderRecord.name}.` : 'Organize images, videos, and files by campaign or client.'} onClose={() => setFolderOpen(false)} size="md">
+        <form onSubmit={submitFolder} className="space-y-4 p-5">
           <Input label="Folder name" value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="Campaign assets" required />
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
             <Button type="button" variant="ghost" onClick={() => setFolderOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={folderBusy}><FolderPlus className="h-4 w-4" /> Create folder</Button>
+            <Button type="submit" loading={folderBusy}>
+              {editingFolder ? <Pencil className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
+              {editingFolder ? 'Save folder' : 'Create folder'}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -273,22 +369,185 @@ export default function Media() {
         onClose={() => setConfirmDelete(null)}
         onConfirm={remove}
       />
+
+      <ConfirmDialog
+        open={Boolean(confirmFolderDelete)}
+        title="Delete folder"
+        description={`Delete "${confirmFolderDelete?.name || 'this folder'}"? Files in this folder will stay in the media library as unfiled items.`}
+        confirmLabel="Delete folder"
+        loading={folderBusy}
+        onClose={() => setConfirmFolderDelete(null)}
+        onConfirm={deleteFolder}
+      />
     </div>
   )
 }
 
-function FolderChip({ label, count, active, onClick }) {
+function MediaFolderSidebar({
+  activeFolder,
+  allFileCount,
+  collapsed,
+  expandedFolders,
+  folderTree,
+  folders,
+  onCollapse,
+  onCreate,
+  onDelete,
+  onExpand,
+  onRename,
+  onSelect,
+  onToggle,
+}) {
+  if (collapsed) {
+    return (
+      <Card className="flex min-h-[320px] flex-col items-center gap-3 p-2">
+        <button type="button" onClick={onExpand} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" title="Show folder tree" aria-label="Show folder tree">
+          <PanelLeftOpen className="h-5 w-5" />
+        </button>
+        <button type="button" onClick={() => onSelect('all')} className={clsx('rounded-xl p-2', activeFolder === 'all' ? 'bg-brand-600 text-white' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800')} title="All files" aria-label="All files">
+          <FolderOpen className="h-5 w-5" />
+        </button>
+        <button type="button" onClick={onCreate} className="mt-auto rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" title="New folder" aria-label="New folder">
+          <FolderPlus className="h-5 w-5" />
+        </button>
+      </Card>
+    )
+  }
+
+  return (
+    <Card className="min-h-[520px] overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <div>
+          <p className="text-sm font-bold text-slate-900 dark:text-white">Folders</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{folders.length} folder{folders.length === 1 ? '' : 's'}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={onCreate} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" title="New folder" aria-label="New folder">
+            <FolderPlus className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={onCollapse} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" title="Hide folder tree" aria-label="Hide folder tree">
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      <div className="max-h-[68vh] overflow-y-auto p-3">
+        <FolderNavButton icon={FolderOpen} label="All files" count={allFileCount} active={activeFolder === 'all'} onClick={() => onSelect('all')} />
+        <FolderNavButton icon={Folder} label="Unfiled" active={activeFolder === 'root'} onClick={() => onSelect('root')} />
+        <div className="mt-3 space-y-1">
+          {folderTree.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+              Create folders for campaigns, clients, or channels.
+            </div>
+          ) : folderTree.map((folder) => (
+            <FolderTreeItem
+              key={folder.id}
+              activeFolder={activeFolder}
+              expandedFolders={expandedFolders}
+              folder={folder}
+              level={0}
+              onDelete={onDelete}
+              onRename={onRename}
+              onSelect={onSelect}
+              onToggle={onToggle}
+            />
+          ))}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function FolderNavButton({ icon: Icon, label, count, active, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${active ? 'border-brand-500 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+      className={clsx(
+        'mb-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold transition',
+        active ? 'bg-brand-600 text-white shadow-sm shadow-brand-600/20' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+      )}
     >
-      <FolderOpen className="h-4 w-4" />
-      {label}
-      {count !== undefined && <span className={`rounded-full px-1.5 text-[10px] ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>{count}</span>}
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {count !== undefined && <span className={clsx('rounded-full px-1.5 text-[10px]', active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400')}>{count}</span>}
     </button>
   )
+}
+
+function FolderTreeItem({ activeFolder, expandedFolders, folder, level, onDelete, onRename, onSelect, onToggle }) {
+  const hasChildren = folder.children.length > 0
+  const expanded = expandedFolders.has(String(folder.id))
+  const active = String(activeFolder) === String(folder.id)
+
+  return (
+    <div>
+      <div className={clsx('group flex items-center rounded-xl transition', active ? 'bg-brand-600 text-white shadow-sm shadow-brand-600/20' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800')} style={{ paddingLeft: `${Math.min(level * 14, 42)}px` }}>
+        <button
+          type="button"
+          onClick={() => hasChildren && onToggle(folder.id)}
+          className={clsx('ml-1 flex h-8 w-7 shrink-0 items-center justify-center rounded-lg', hasChildren ? 'hover:bg-black/5 dark:hover:bg-white/10' : 'cursor-default opacity-30')}
+          aria-label={expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
+        >
+          {hasChildren ? (expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />) : <span className="h-3.5 w-3.5" />}
+        </button>
+        <button type="button" onClick={() => onSelect(folder.id)} className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-1 text-left">
+          {active ? <FolderOpen className="h-4 w-4 shrink-0" /> : <Folder className="h-4 w-4 shrink-0" />}
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{folder.name}</span>
+          <span className={clsx('rounded-full px-1.5 text-[10px]', active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-400')}>{folder.assets_count || 0}</span>
+        </button>
+        <div className={clsx('mr-1 flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100', active && 'opacity-100')}>
+          <button type="button" onClick={() => onRename(folder)} className={clsx('rounded-lg p-1.5', active ? 'text-white/90 hover:bg-white/15' : 'text-slate-400 hover:bg-white hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-white')} title={`Rename ${folder.name}`} aria-label={`Rename ${folder.name}`}>
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" onClick={() => onDelete(folder)} className={clsx('rounded-lg p-1.5', active ? 'text-white/90 hover:bg-white/15' : 'text-slate-400 hover:bg-white hover:text-rose-500 dark:hover:bg-slate-900')} title={`Delete ${folder.name}`} aria-label={`Delete ${folder.name}`}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      {hasChildren && expanded && (
+        <div className="mt-1 space-y-1">
+          {folder.children.map((child) => (
+            <FolderTreeItem
+              key={child.id}
+              activeFolder={activeFolder}
+              expandedFolders={expandedFolders}
+              folder={child}
+              level={level + 1}
+              onDelete={onDelete}
+              onRename={onRename}
+              onSelect={onSelect}
+              onToggle={onToggle}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function buildFolderTree(folders) {
+  const map = new Map()
+  folders.forEach((folder) => map.set(String(folder.id), { ...folder, children: [] }))
+  const roots = []
+  map.forEach((folder) => {
+    const parent = folder.parent_id ? map.get(String(folder.parent_id)) : null
+    if (parent) parent.children.push(folder)
+    else roots.push(folder)
+  })
+  const sortByName = (items) => {
+    items.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+    items.forEach((item) => sortByName(item.children))
+    return items
+  }
+  return sortByName(roots)
+}
+
+function collectFolderIds(folder) {
+  const ids = new Set([String(folder.id)])
+  ;(folder.children || []).forEach((child) => {
+    collectFolderIds(child).forEach((id) => ids.add(id))
+  })
+  return ids
 }
 
 function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, folders, onSaved }) {
@@ -296,10 +555,6 @@ function MediaPreviewModal({ asset, onClose, onNext, onPrevious, hasNavigation, 
   const [form, setForm] = useState({ original_name: asset.original_name || '', alt_text: asset.alt_text || '', folder_id: asset.folder_id || '' })
   const [saving, setSaving] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(true)
-
-  useEffect(() => {
-    setForm({ original_name: asset.original_name || '', alt_text: asset.alt_text || '', folder_id: asset.folder_id || '' })
-  }, [asset])
 
   useEffect(() => {
     const handleKey = (event) => {

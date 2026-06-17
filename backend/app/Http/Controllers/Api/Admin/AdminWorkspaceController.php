@@ -21,8 +21,15 @@ class AdminWorkspaceController extends Controller
     {
         $workspaces = Workspace::query()
             ->with(['owner:id,name,email', 'subscription.plan'])
-            ->withCount(['members', 'socialAccounts', 'posts'])
-            ->when($request->search, fn ($q, $s) => $q->where('name', 'like', "%{$s}%"))
+            ->withCount(['members', 'pendingInvitations', 'socialAccounts', 'posts'])
+            ->when($request->search, fn ($q, $s) => $q->where(function ($query) use ($s) {
+                $query->where('name', 'like', "%{$s}%")
+                    ->orWhereHas('owner', fn ($owner) => $owner
+                        ->where('email', 'like', "%{$s}%")
+                        ->orWhere('name', 'like', "%{$s}%")
+                    );
+            })
+            )
             ->latest()
             ->paginate($request->integer('per_page', 25));
 
@@ -33,8 +40,13 @@ class AdminWorkspaceController extends Controller
     {
         return response()->json([
             'data' => new WorkspaceResource(
-                $workspace->load(['owner', 'subscription.plan', 'socialAccounts'])
-                    ->loadCount(['members', 'posts', 'automations'])
+                $workspace->load([
+                    'owner',
+                    'subscription.plan',
+                    'members',
+                    'invitations.inviter',
+                    'socialAccounts',
+                ])->loadCount(['members', 'pendingInvitations', 'socialAccounts', 'posts', 'automations'])
             ),
         ]);
     }
@@ -44,6 +56,7 @@ class AdminWorkspaceController extends Controller
         $data = $request->validate([
             'owner_id' => ['required', 'exists:users,id'],
             'name' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:1000'],
             'timezone' => ['nullable', 'timezone:all'],
             'plan_id' => ['nullable', 'exists:plans,id'],
             'trial_days' => ['nullable', 'integer', 'min:0', 'max:365'],
@@ -51,7 +64,7 @@ class AdminWorkspaceController extends Controller
 
         $owner = User::findOrFail($data['owner_id']);
         $plan = isset($data['plan_id']) ? Plan::find($data['plan_id']) : null;
-        $workspace = $this->provisioner->create($owner, $data['name'], $plan);
+        $workspace = $this->provisioner->create($owner, $data['name'], $plan, $data['description'] ?? null);
         $workspace->update(array_filter([
             'timezone' => $data['timezone'] ?? null,
             'trial_ends_at' => isset($data['trial_days']) ? now()->addDays($data['trial_days']) : null,
@@ -73,11 +86,12 @@ class AdminWorkspaceController extends Controller
     {
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:1000'],
             'timezone' => ['sometimes', 'timezone:all'],
             'brand_color' => ['nullable', 'string', 'max:9'],
             'trial_ends_at' => ['nullable', 'date'],
             'owner_id' => ['sometimes', 'exists:users,id'],
-            'plan_id' => ['sometimes', 'exists:plans,id'],
+            'plan_id' => ['nullable', 'exists:plans,id'],
         ]);
 
         DB::transaction(function () use ($workspace, $data) {
@@ -96,7 +110,7 @@ class AdminWorkspaceController extends Controller
         });
 
         return response()->json([
-            'data' => new WorkspaceResource($workspace->fresh()->load(['owner', 'subscription.plan'])->loadCount(['members', 'socialAccounts', 'posts'])),
+            'data' => new WorkspaceResource($workspace->fresh()->load(['owner', 'subscription.plan'])->loadCount(['members', 'pendingInvitations', 'socialAccounts', 'posts'])),
         ]);
     }
 

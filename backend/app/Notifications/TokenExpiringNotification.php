@@ -29,6 +29,7 @@ class TokenExpiringNotification extends Notification
             'type' => 'account.token_expiring',
             'title' => 'Reconnect needed',
             'message' => "Your {$this->account->name} connection is expiring. Reconnect to keep publishing.",
+            'workspace_id' => $this->account->workspace_id,
             'social_account_id' => $this->account->id,
             'platform' => $this->account->platform,
         ];

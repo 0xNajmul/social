@@ -40,6 +40,7 @@ class PostFailedNotification extends Notification
             'type' => 'post.failed',
             'title' => 'Post failed',
             'message' => "Publishing to {$this->variant->platform} failed: {$this->reason}",
+            'workspace_id' => $this->variant->post?->workspace_id,
             'post_id' => $this->variant->post_id,
             'platform' => $this->variant->platform,
         ];
