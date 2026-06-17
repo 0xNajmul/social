@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight, BarChart3, BellRing, Bot, CalendarDays, Check, CheckCircle2,
-  Building2, ChevronRight, Clock3, FileCheck2, Gauge, Image as ImageIcon,
+  Building2, ChevronDown, ChevronRight, Clock3, FileCheck2, Gauge, Image as ImageIcon,
   Layers3, LogOut, Menu, Play, Send, ShieldCheck,
   Sparkles, Users, WandSparkles, Workflow, X, Zap,
 } from 'lucide-react'
@@ -207,10 +207,13 @@ export default function Landing() {
           <div className="flex items-center gap-2.5">
             <button
               className="rounded-xl border border-slate-900/10 p-2 text-slate-700 dark:border-white/10 dark:text-slate-200 lg:hidden"
-              onClick={() => setMobileOpen((open) => !open)}
-              aria-label="Toggle navigation"
+              onClick={() => {
+                setMobileOpen(true)
+                setAccountOpen(false)
+              }}
+              aria-label="Open navigation"
             >
-              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              <Menu className="h-5 w-5" />
             </button>
             <Link to="/" className="flex items-center gap-2.5" aria-label={`${brandName} home`}>
               <LogoMark logoUrl={logoUrl} />
@@ -231,17 +234,17 @@ export default function Landing() {
                 <button
                   type="button"
                   onClick={() => setAccountOpen((open) => !open)}
-                  className="flex items-center gap-2 rounded-full border border-slate-900/10 bg-white/70 p-1.5 pr-2 text-left shadow-sm backdrop-blur transition hover:bg-white dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+                  className="flex items-center gap-2 rounded-xl border border-slate-900/10 bg-white/70 px-2.5 py-1.5 text-left shadow-sm backdrop-blur transition hover:bg-white dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
                   aria-expanded={accountOpen}
                   aria-haspopup="menu"
                 >
                   {user.avatar_url ? (
-                    <img src={user.avatar_url} alt="" className="h-8 w-8 rounded-full object-cover" />
+                    <img src={user.avatar_url} alt="" className="h-7 w-7 rounded-full object-cover" />
                   ) : (
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-black uppercase text-white">{user.name?.[0] || 'U'}</span>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-xs font-black uppercase text-white">{user.name?.[0] || 'U'}</span>
                   )}
-                  <span className="hidden max-w-28 truncate text-sm font-bold text-slate-700 dark:text-slate-200 md:block">{user.name}</span>
-                  <ChevronRight className={`hidden h-4 w-4 text-slate-400 transition sm:block ${accountOpen ? 'rotate-90' : ''}`} />
+                  <span className="hidden max-w-36 truncate text-sm font-semibold text-slate-700 dark:text-slate-200 sm:block">{user.name}</span>
+                  <ChevronDown className={`h-4 w-4 text-slate-400 transition ${accountOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {accountOpen && (
                   <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-slate-900/10 bg-white p-1.5 shadow-2xl shadow-slate-900/15 dark:border-white/10 dark:bg-slate-900" role="menu">
@@ -271,9 +274,32 @@ export default function Landing() {
           </div>
         </div>
 
-        {mobileOpen && (
-          <div className="border-t border-slate-900/5 bg-[#f8f7f3] px-5 py-5 dark:border-white/10 dark:bg-[#080b12] lg:hidden">
-            <nav className="flex flex-col gap-1">
+        <div className={`fixed inset-0 z-50 lg:hidden ${mobileOpen ? 'pointer-events-auto' : 'pointer-events-none'}`} aria-hidden={!mobileOpen}>
+          <div
+            className={`absolute inset-0 bg-slate-950/45 backdrop-blur-[2px] transition-opacity duration-300 ${mobileOpen ? 'opacity-100' : 'opacity-0'}`}
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside
+            className="absolute inset-y-0 flex w-[min(22rem,86vw)] flex-col border-r border-slate-900/10 bg-[#f8f7f3] shadow-2xl transition-[left] duration-300 ease-out dark:border-white/10 dark:bg-[#080b12]"
+            style={{
+              left: mobileOpen ? '0px' : 'calc(-1 * min(22rem, 86vw))',
+              transform: 'none',
+              translate: 'none',
+            }}
+          >
+            <div className="flex h-16 items-center gap-2.5 border-b border-slate-900/5 px-5 dark:border-white/10">
+              <LogoMark logoUrl={logoUrl} />
+              <span className="min-w-0 flex-1 truncate text-lg font-extrabold tracking-[-0.035em]">{brandName}</span>
+              <button
+                type="button"
+                onClick={() => setMobileOpen(false)}
+                className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-900/5 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white"
+                aria-label="Close navigation"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
               {navigationItems.map((item) => (
                 <div key={`${item.label}-${item.href}`}>
                   <a href={item.href} onClick={() => setMobileOpen(false)} className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-semibold hover:bg-slate-900/5 dark:hover:bg-white/5">
@@ -293,8 +319,8 @@ export default function Landing() {
               ))}
               {!user && <Link to="/login" className="rounded-xl px-3 py-3 text-sm font-semibold">Log in</Link>}
             </nav>
-          </div>
-        )}
+          </aside>
+        </div>
       </header>
 
       <main>

@@ -46,28 +46,23 @@ class AdminDashboardController extends Controller
 
     protected function dateRange(Request $request): array
     {
-        $range = $request->string('range', 'month')->toString();
+        $range = $request->string('range', 'all')->toString();
 
-        if ($range === 'today') {
-            return [now()->startOfDay(), now()->endOfDay(), $range];
-        }
-
-        if ($range === 'week') {
-            return [now()->startOfWeek(), now()->endOfWeek(), $range];
-        }
-
-        if ($range === 'all') {
-            return [null, null, $range];
-        }
-
-        if ($range === 'custom') {
-            $from = $request->date('from')?->startOfDay();
-            $to = $request->date('to')?->endOfDay();
-
-            return [$from, $to, $range];
-        }
-
-        return [now()->startOfMonth(), now()->endOfMonth(), 'month'];
+        return match ($range) {
+            'today' => [now()->startOfDay(), now()->endOfDay(), $range],
+            'yesterday' => [now()->subDay()->startOfDay(), now()->subDay()->endOfDay(), $range],
+            'last_7_days', 'week' => [now()->subDays(6)->startOfDay(), now()->endOfDay(), 'last_7_days'],
+            'last_30_days' => [now()->subDays(29)->startOfDay(), now()->endOfDay(), $range],
+            'this_month', 'month' => [now()->startOfMonth(), now()->endOfMonth(), 'this_month'],
+            'last_month' => [now()->subMonthNoOverflow()->startOfMonth(), now()->subMonthNoOverflow()->endOfMonth(), $range],
+            'this_year' => [now()->startOfYear(), now()->endOfYear(), $range],
+            'custom' => [
+                $request->date('from')?->startOfDay(),
+                $request->date('to')?->endOfDay(),
+                $range,
+            ],
+            default => [null, null, 'all'],
+        };
     }
 
     protected function between($query, $from, $to, string $column = 'created_at')

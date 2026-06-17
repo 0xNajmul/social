@@ -15,12 +15,11 @@ import {
   X,
 } from 'lucide-react'
 import clsx from 'clsx'
-import api, { workspaceStore } from '../lib/api'
-import { useAuth } from '../context/AuthContext'
+import api from '../lib/api'
 import { Button, Input, Modal } from './ui'
 import MediaDropzone from './composer/MediaDropzone'
-import { currentTimezone, timezoneLabel, timezones } from '../lib/timezones'
 import PlanEditorModal from './planner/PlanEditorModal'
+import WorkspaceCreateModal from './workspaces/WorkspaceCreateModal'
 
 const ComposerContent = lazy(() => import('../pages/Composer').then((module) => ({ default: module.ComposerContent })))
 
@@ -36,7 +35,6 @@ const ACTIONS = [
 
 export default function QuickActions() {
   const navigate = useNavigate()
-  const { reload } = useAuth()
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(null)
   const desktopMenuRef = useRef(null)
@@ -174,9 +172,12 @@ export default function QuickActions() {
         <AutomationQuickForm onDone={closeModal} />
       </Modal>
 
-      <Modal open={modalType === 'workspace'} title="New workspace" description="Create a separate workspace for a brand or team." onClose={closeModal} size="lg">
-        <WorkspaceQuickForm onDone={closeModal} reload={reload} />
-      </Modal>
+      <WorkspaceCreateModal
+        open={modalType === 'workspace'}
+        title="New workspace"
+        description="Create a separate workspace for a brand or team."
+        onClose={closeModal}
+      />
 
       <Modal open={modalType === 'team'} title="Invite team member" description="Send an invitation without leaving this page." onClose={closeModal} size="lg">
         <TeamQuickForm onDone={closeModal} />
@@ -197,43 +198,6 @@ function MediaUploadQuickForm({ onDone }) {
         <Button onClick={onDone} disabled={uploading}>{uploading ? 'Uploading...' : 'Done'}</Button>
       </div>
     </div>
-  )
-}
-
-function WorkspaceQuickForm({ onDone, reload }) {
-  const [form, setForm] = useState({ name: '', timezone: currentTimezone() })
-  const [busy, setBusy] = useState(false)
-
-  const save = async (event) => {
-    event.preventDefault()
-    setBusy(true)
-    try {
-      const { data } = await api.post('/workspaces', form)
-      workspaceStore.set(data.data.slug)
-      await api.post(`/workspaces/${data.data.slug}/switch`)
-      await reload()
-      onDone()
-    } catch (error) {
-      alert(error.response?.data?.message || 'Could not create workspace.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <form onSubmit={save} className="space-y-4 p-5">
-      <Input label="Workspace name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required placeholder="Northstar Studio" />
-      <label className="block">
-        <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Timezone</span>
-        <select value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-          {timezones().map((timezone) => <option key={timezone} value={timezone}>{timezoneLabel(timezone)}</option>)}
-        </select>
-      </label>
-      <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-        <Button type="button" variant="ghost" onClick={onDone}>Cancel</Button>
-        <Button type="submit" loading={busy}><Building2 className="h-4 w-4" /> Create workspace</Button>
-      </div>
-    </form>
   )
 }
 

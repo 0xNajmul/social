@@ -82,6 +82,17 @@ class AuthController extends Controller
         ]);
     }
 
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+
+        return response()->json([
+            'message' => 'If an account exists for that email, password reset instructions will be sent shortly.',
+        ]);
+    }
+
     public function googleRedirect(Request $request): JsonResponse
     {
         $clientId = config('services.google_login.client_id');

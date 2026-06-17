@@ -8,6 +8,7 @@ import DashboardLayout from './components/DashboardLayout'
 import Landing from './pages/Landing'
 const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Composer = lazy(() => import('./pages/Composer'))
 const Accounts = lazy(() => import('./pages/Accounts'))
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/impersonate" element={<AuthTokenLanding />} />
             <Route path="/auth/google/callback" element={<AuthTokenLanding />} />
             <Route path="/invitations/:token" element={<ProtectedRoute><InvitationAccept /></ProtectedRoute>} />

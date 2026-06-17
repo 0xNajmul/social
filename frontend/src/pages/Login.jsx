@@ -32,7 +32,7 @@ export default function Login() {
     setError('')
     try {
       const { data } = await api.get('/auth/google/redirect')
-      window.location.href = data.url
+      window.location.assign(data.url)
     } catch (err) {
       setError(err.response?.data?.message || 'Google login is not configured yet.')
     }
@@ -49,6 +49,9 @@ export default function Login() {
         <div className="flex items-center gap-3 text-xs text-slate-400"><span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" /> or <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" /></div>
         <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <div className="flex justify-end">
+          <Link to="/forgot-password" className="text-sm font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-300 dark:hover:text-brand-200">Forgot password?</Link>
+        </div>
         <Button type="submit" loading={loading} className="w-full">Log in</Button>
       </form>
       <p className="mt-6 text-center text-sm text-slate-500">
@@ -65,7 +68,7 @@ export function AuthShell({ title, subtitle, children }) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="grid min-h-screen lg:grid-cols-2">
-        <section className="relative flex min-h-[46vh] flex-col overflow-hidden border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#eef2ff_48%,#ecfeff_100%)] dark:border-slate-800 dark:bg-[linear-gradient(135deg,#0f172a_0%,#111827_55%,#082f49_100%)] lg:min-h-screen lg:border-b-0 lg:border-r">
+        <section className="relative hidden min-h-screen flex-col overflow-hidden border-r border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#eef2ff_48%,#ecfeff_100%)] dark:border-slate-800 dark:bg-[linear-gradient(135deg,#0f172a_0%,#111827_55%,#082f49_100%)] lg:flex">
           <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(rgba(15,23,42,.07)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.07)_1px,transparent_1px)] [background-size:28px_28px] dark:opacity-30 dark:[background-image:linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)]" />
           <div className="relative flex h-20 items-center px-6 lg:px-10">
             <Link to="/" className="inline-flex items-center gap-2">
@@ -99,7 +102,7 @@ export function AuthShell({ title, subtitle, children }) {
           </div>
         </section>
 
-        <section className="flex min-h-[54vh] items-center justify-center bg-white/85 px-6 py-10 dark:bg-slate-950 lg:min-h-screen lg:px-12">
+        <section className="flex min-h-screen items-center justify-center bg-white/85 px-6 py-10 dark:bg-slate-950 lg:px-12">
           <div className="w-full max-w-md">
             <Link to="/" className="mb-8 flex items-center justify-center gap-2 lg:hidden">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white">

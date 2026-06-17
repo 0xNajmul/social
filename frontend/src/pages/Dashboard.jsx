@@ -1,35 +1,32 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarClock, CheckCircle2, FileEdit, AlertTriangle, Share2, Clock3, CalendarDays } from 'lucide-react'
-import clsx from 'clsx'
+import { CalendarClock, CheckCircle2, FileEdit, AlertTriangle, Share2, Clock3 } from 'lucide-react'
 import api from '../lib/api'
 import { Card, StatCard, PageLoader, EmptyState, Badge, Button } from '../components/ui'
 import PlatformBadge from '../components/PlatformBadge'
-import DateTimeField from '../components/DateTimeField'
 
 const RANGES = [
+  ['all', 'All time'],
   ['today', 'Today'],
-  ['month', 'Monthly'],
-  ['custom', 'Custom'],
+  ['yesterday', 'Yesterday'],
+  ['last_7_days', 'Last 7 days'],
+  ['last_30_days', 'Last 30 days'],
+  ['this_month', 'This month'],
+  ['last_month', 'Last month'],
+  ['this_year', 'This year'],
 ]
 
 export default function Dashboard() {
   const [data, setData] = useState(null)
-  const [range, setRange] = useState('month')
-  const [custom, setCustom] = useState({ from: '', to: '' })
-  const [draftCustom, setDraftCustom] = useState({ from: '', to: '' })
-  const [customOpen, setCustomOpen] = useState(false)
+  const [range, setRange] = useState('all')
 
   useEffect(() => {
-    setData(null)
     api.get('/dashboard', {
       params: {
         range,
-        from: range === 'custom' ? custom.from || undefined : undefined,
-        to: range === 'custom' ? custom.to || undefined : undefined,
       },
     }).then(({ data }) => setData(data)).catch(() => setData({ error: true }))
-  }, [custom.from, custom.to, range])
+  }, [range])
 
   const openComposerModal = () => {
     window.dispatchEvent(new CustomEvent('postflow:quick-action', { detail: { type: 'composer' } }))
@@ -46,58 +43,17 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-slate-500">Here's what's happening across your channels.</p>
         </div>
-        <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            {RANGES.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => {
-                  if (key === 'custom') {
-                    setDraftCustom(custom)
-                    setCustomOpen((value) => !value)
-                    return
-                  }
-                  setRange(key)
-                  setCustomOpen(false)
-                }}
-                className={clsx(
-                  'whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition',
-                  range === key ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white',
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {range === 'custom' && customOpen && (
-            <div className="absolute right-0 top-full z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-800 dark:bg-slate-900">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                <CalendarDays className="h-4 w-4 text-brand-500" /> Choose custom dates
-              </div>
-              <div className="grid gap-3">
-                <DateTimeField label="From" type="date" value={draftCustom.from} onChange={(event) => setDraftCustom({ ...draftCustom, from: event.target.value })} />
-                <DateTimeField label="To" type="date" value={draftCustom.to} onChange={(event) => setDraftCustom({ ...draftCustom, to: event.target.value })} />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => {
-                    setCustom(draftCustom)
-                    setRange('custom')
-                    setCustomOpen(false)
-                  }}
-                >
-                  Apply dates
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+        <label className="block w-full sm:w-64">
+          <span className="sr-only">Dashboard date range</span>
+          <select value={range} onChange={(event) => setRange(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            {RANGES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select>
+        </label>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Scheduled" value={stats.scheduled} icon={CalendarClock} accent="brand" />
-        <StatCard label="Published (mo)" value={stats.published_this_month} icon={CheckCircle2} accent="emerald" />
+        <StatCard label="Published" value={stats.published_this_month} icon={CheckCircle2} accent="emerald" />
         <StatCard label="Drafts" value={stats.drafts} icon={FileEdit} accent="sky" />
         <StatCard label="Failed" value={stats.failed} icon={AlertTriangle} accent="rose" />
         <StatCard label="Accounts" value={stats.connected_accounts} icon={Share2} accent="brand" />

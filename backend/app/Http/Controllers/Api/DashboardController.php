@@ -54,21 +54,23 @@ class DashboardController extends Controller
 
     protected function dateRange(Request $request): array
     {
-        $range = $request->string('range', 'month')->toString();
+        $range = $request->string('range', 'all')->toString();
 
-        if ($range === 'today') {
-            return [now()->startOfDay(), now()->endOfDay(), $range];
-        }
-
-        if ($range === 'custom') {
-            return [
+        return match ($range) {
+            'today' => [now()->startOfDay(), now()->endOfDay(), $range],
+            'yesterday' => [now()->subDay()->startOfDay(), now()->subDay()->endOfDay(), $range],
+            'last_7_days' => [now()->subDays(6)->startOfDay(), now()->endOfDay(), $range],
+            'last_30_days' => [now()->subDays(29)->startOfDay(), now()->endOfDay(), $range],
+            'this_month', 'month' => [now()->startOfMonth(), now()->endOfMonth(), 'this_month'],
+            'last_month' => [now()->subMonthNoOverflow()->startOfMonth(), now()->subMonthNoOverflow()->endOfMonth(), $range],
+            'this_year' => [now()->startOfYear(), now()->endOfYear(), $range],
+            'custom' => [
                 $request->date('from')?->startOfDay(),
                 $request->date('to')?->endOfDay(),
                 $range,
-            ];
-        }
-
-        return [now()->startOfMonth(), now()->endOfMonth(), 'month'];
+            ],
+            default => [null, null, 'all'],
+        };
     }
 
     protected function between($query, $from, $to, string $column = 'created_at')

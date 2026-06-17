@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Building2, Check, Crown, Edit3, LayoutGrid, LogOut, Plus, Table2, Trash2, Users } from 'lucide-react'
+import { Building2, Check, Edit3, LayoutGrid, LogOut, Plus, Table2, Trash2, Users } from 'lucide-react'
 import clsx from 'clsx'
 import api, { workspaceStore } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
@@ -119,17 +119,16 @@ function WorkspaceCard({ workspace, activeWorkspace, busy, activate, ownedWorksp
   const canDelete = owner && ownedWorkspaceCount > 1
 
   return (
-    <Card className={clsx('relative overflow-hidden p-5 transition', active && 'border-brand-400 ring-2 ring-brand-500/15 dark:border-brand-500')}>
+    <Card className={clsx('relative overflow-hidden p-4 transition', active && 'border-brand-400 ring-2 ring-brand-500/15 dark:border-brand-500')}>
       {active && <div className="absolute right-0 top-0 rounded-bl-xl bg-brand-600 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-white">Active</div>}
       <WorkspaceIdentity workspace={workspace} active={active} />
 
-      <div className="mt-5 grid grid-cols-3 gap-3">
+      <div className="mt-4 grid grid-cols-2 gap-3">
         <Metric icon={Users} label="Members" value={workspace.members_count ?? 0} />
         <Metric icon={Building2} label="Accounts" value={workspace.social_accounts_count ?? 0} />
-        <Metric icon={Crown} label="Plan" value={workspace.subscription?.plan?.name || 'Trial'} />
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
         {!active && <Button size="sm" onClick={() => activate(workspace)} loading={busy === `switch-${workspace.id}`}><Check className="h-4 w-4" /> Switch</Button>}
         <Link to={`/app/workspaces/${workspace.id}`}><Button size="sm" variant="secondary"><Edit3 className="h-4 w-4" /> Edit</Button></Link>
         {active && (
@@ -147,9 +146,9 @@ function WorkspaceTable({ workspaces, activeWorkspace, busy, activate, ownedWork
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-left text-sm">
+        <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-            <tr><th className="px-5 py-3">Workspace</th><th className="px-5 py-3">Role</th><th className="px-5 py-3">Members</th><th className="px-5 py-3">Accounts</th><th className="px-5 py-3">Plan</th><th className="px-5 py-3 text-right">Actions</th></tr>
+            <tr><th className="px-5 py-3">Workspace</th><th className="px-5 py-3">Role</th><th className="px-5 py-3">Members</th><th className="px-5 py-3">Accounts</th><th className="px-5 py-3 text-right">Actions</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {workspaces.map((workspace) => {
@@ -160,7 +159,6 @@ function WorkspaceTable({ workspaces, activeWorkspace, busy, activate, ownedWork
                   <td className="px-5 py-4"><Badge color={workspace.role === 'owner' ? 'amber' : 'indigo'}>{workspace.role === 'owner' ? 'Owner' : workspace.role}</Badge></td>
                   <td className="px-5 py-4 text-slate-500 dark:text-slate-400">{workspace.members_count ?? 0}</td>
                   <td className="px-5 py-4 text-slate-500 dark:text-slate-400">{workspace.social_accounts_count ?? 0}</td>
-                  <td className="px-5 py-4 text-slate-500 dark:text-slate-400">{workspace.subscription?.plan?.name || 'Trial'}</td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-2">
                       {!active && <Button size="sm" onClick={() => activate(workspace)} loading={busy === `switch-${workspace.id}`}><Check className="h-4 w-4" /> Switch</Button>}
@@ -185,8 +183,8 @@ function WorkspaceTable({ workspaces, activeWorkspace, busy, activate, ownedWork
 
 function WorkspaceIdentity({ workspace, compact = false, active = false }) {
   return (
-    <div className="flex items-start gap-4">
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-lg font-bold text-white" style={{ backgroundColor: workspace.brand_color || '#4f46e5' }}>
+    <div className="flex items-start gap-3">
+      <div className={clsx('flex shrink-0 items-center justify-center rounded-2xl font-bold text-white', compact ? 'h-10 w-10 text-base' : 'h-11 w-11 text-lg')} style={{ backgroundColor: workspace.brand_color || '#4f46e5' }}>
         {workspace.name?.[0]?.toUpperCase() || 'W'}
       </div>
       <div className="min-w-0 flex-1">
@@ -196,7 +194,7 @@ function WorkspaceIdentity({ workspace, compact = false, active = false }) {
           {!compact && <Badge color={workspace.role === 'owner' ? 'amber' : 'indigo'}>{workspace.role === 'owner' ? 'Owner' : workspace.role}</Badge>}
         </div>
         {workspace.description && <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{workspace.description}</p>}
-        <p className="mt-1 truncate text-xs text-slate-400">ID #{workspace.id} · {workspace.slug} · {workspace.timezone}</p>
+        <p className="mt-1 truncate text-xs text-slate-400">ID #{workspace.id} · {workspace.slug}</p>
       </div>
     </div>
   )
