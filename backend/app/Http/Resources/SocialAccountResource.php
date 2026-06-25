@@ -49,6 +49,13 @@ class SocialAccountResource extends JsonResource
             'token_expires_at' => $this->token_expires_at,
             'last_synced_at' => $this->last_synced_at,
             'created_at' => $this->created_at,
+            'connected_by' => $this->whenLoaded('connector', fn () => $this->connector ? [
+                'id' => $this->connector->id,
+                'name' => $this->connector->name,
+                'email' => $this->connector->email,
+                'avatar_url' => $this->connector->avatar_path ? asset('storage/'.$this->connector->avatar_path) : null,
+            ] : null),
+            'connected_by_name' => $this->whenLoaded('connector', fn () => $this->connector?->name),
         ];
     }
 }

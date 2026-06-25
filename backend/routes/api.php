@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Admin\AdminDashboardController;
 use App\Http\Controllers\Api\Admin\AdminContentController;
+use App\Http\Controllers\Api\Admin\AdminFeedController;
 use App\Http\Controllers\Api\Admin\AdminJobController;
 use App\Http\Controllers\Api\Admin\AdminPlanController;
 use App\Http\Controllers\Api\Admin\AdminPostController;
@@ -18,6 +19,7 @@ use App\Http\Controllers\Api\BillingController;
 use App\Http\Controllers\Api\CalendarController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DeveloperController;
+use App\Http\Controllers\Api\FeedController;
 use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\Api\MediaFolderController;
 use App\Http\Controllers\Api\NotificationController;
@@ -73,6 +75,7 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::middleware('workspace')->group(function () {
         Route::get('workspace', [WorkspaceController::class, 'show']);
+        Route::post('workspace', [WorkspaceController::class, 'update']);
         Route::put('workspace', [WorkspaceController::class, 'update']);
         Route::delete('workspace', [WorkspaceController::class, 'destroy']);
         Route::post('workspace/leave', [WorkspaceController::class, 'leave']);
@@ -123,8 +126,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('media-folders', MediaFolderController::class)->only(['index', 'store', 'update', 'destroy']);
 
         // Automations
-        Route::apiResource('automations', AutomationController::class)->except(['show']);
+        Route::apiResource('automations', AutomationController::class);
         Route::post('automations/{automation}/run', [AutomationController::class, 'run']);
+
+        // Feed discovery
+        Route::get('feeds', [FeedController::class, 'index']);
+        Route::post('feeds', [FeedController::class, 'store']);
+        Route::put('feeds/{rssFeed}', [FeedController::class, 'update']);
+        Route::delete('feeds/{rssFeed}', [FeedController::class, 'destroy']);
+        Route::post('feeds/{rssFeed}/refresh', [FeedController::class, 'refresh']);
+        Route::get('feed/items', [FeedController::class, 'items']);
 
         // AI assistant
         Route::post('ai/generate', [AiController::class, 'generate']);
@@ -169,6 +180,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('media', [AdminContentController::class, 'media']);
         Route::get('automations', [AdminContentController::class, 'automations']);
         Route::get('accounts', [AdminContentController::class, 'accounts']);
+        Route::get('feeds', [AdminFeedController::class, 'index']);
+        Route::post('feeds', [AdminFeedController::class, 'store']);
+        Route::put('feeds/{rssFeed}', [AdminFeedController::class, 'update']);
+        Route::delete('feeds/{rssFeed}', [AdminFeedController::class, 'destroy']);
+        Route::post('feeds/{rssFeed}/refresh', [AdminFeedController::class, 'refresh']);
 
         Route::get('posts', [AdminPostController::class, 'index']);
         Route::get('posts/{post}', [AdminPostController::class, 'show']);

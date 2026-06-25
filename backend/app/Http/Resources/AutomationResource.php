@@ -15,6 +15,7 @@ class AutomationResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'description' => data_get($this->config ?? [], 'description'),
             'type' => $this->type->value,
             'type_label' => $this->type->label(),
             'is_active' => $this->is_active,

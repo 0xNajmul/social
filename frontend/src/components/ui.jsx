@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { AlertTriangle, Loader2, Maximize2, Minimize2, Sparkles, X } from 'lucide-react'
@@ -77,34 +77,47 @@ export function Textarea({ className, label, error, ...props }) {
   )
 }
 
-export function Modal({ open, title, description, onClose, children, size = 'lg', fullscreenable = false }) {
+export function Modal({ open, title, description, onClose, children, size = 'lg', fullscreenable = false, headerActions = null }) {
   if (!open) return null
 
   return (
-    <ModalContent title={title} description={description} onClose={onClose} size={size} fullscreenable={fullscreenable}>
+    <ModalContent title={title} description={description} onClose={onClose} size={size} fullscreenable={fullscreenable} headerActions={headerActions}>
       {children}
     </ModalContent>
   )
 }
 
-function ModalContent({ title, description, onClose, children, size, fullscreenable }) {
+function ModalContent({ title, description, onClose, children, size, fullscreenable, headerActions }) {
   const [stage, setStage] = useState(() => (fullscreenable ? preferredPopupStage() : 0))
+  const [layout, setLayout] = useState(() => popupLayout())
   const widths = { md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl', screen: 'max-w-7xl' }
   const nextStage = () => setStage((value) => (value + 1) % 3)
-  const sidebarHidden = typeof localStorage !== 'undefined' && localStorage.getItem('postflow_sidebar_hidden') === 'true'
-  const contentLeft = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches && !sidebarHidden ? '16rem' : '0px'
+  const contentLeft = layout.desktop && !layout.sidebarHidden ? '16rem' : '0px'
   const contentMode = fullscreenable && stage === 1
   const fullMode = fullscreenable && stage === 2
   const stageLabel = stage === 0 ? 'Open in content area' : stage === 1 ? 'Open fullscreen' : 'Exit fullscreen'
+
+  useEffect(() => {
+    const syncLayout = () => setLayout(popupLayout())
+    syncLayout()
+    window.addEventListener('resize', syncLayout)
+    window.addEventListener('storage', syncLayout)
+    window.addEventListener('postflow:sidebar-toggled', syncLayout)
+    return () => {
+      window.removeEventListener('resize', syncLayout)
+      window.removeEventListener('storage', syncLayout)
+      window.removeEventListener('postflow:sidebar-toggled', syncLayout)
+    }
+  }, [])
 
   if (typeof document === 'undefined') return null
 
   return createPortal(
     <div
       className={clsx(
-        'fixed z-[80] flex overflow-y-auto',
+        'modal-backdrop fixed z-[190] flex overflow-y-auto transition-[background-color,backdrop-filter,opacity] duration-300 ease-out',
         contentMode && 'bottom-0 right-0 top-16 items-stretch justify-stretch bg-transparent p-0',
-        fullMode && 'inset-0 z-[90] items-stretch justify-stretch bg-slate-950/70 p-0',
+        fullMode && 'inset-0 z-[195] items-stretch justify-stretch bg-slate-950/70 p-0 backdrop-blur-sm',
         !contentMode && !fullMode && 'inset-0 items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm sm:p-6',
       )}
       style={contentMode ? { left: contentLeft } : undefined}
@@ -112,9 +125,9 @@ function ModalContent({ title, description, onClose, children, size, fullscreena
     >
       <div
         className={clsx(
-          'w-full overflow-y-auto bg-white shadow-2xl dark:bg-slate-900',
+          'modal-shell min-w-0 w-full overflow-y-auto bg-white shadow-2xl transition-[width,height,max-width,max-height,border-radius,transform,opacity,box-shadow] duration-300 ease-out dark:bg-slate-900',
           contentMode && 'h-full max-h-none rounded-none border-0 shadow-none',
-          fullMode && 'h-screen max-h-none max-w-none rounded-none border-0 shadow-none',
+          fullMode && 'h-full max-h-none max-w-none rounded-none border-0 shadow-none',
           !contentMode && !fullMode && 'my-auto rounded-2xl border border-slate-200 dark:border-slate-700',
           !contentMode && !fullMode && 'max-h-[92vh]',
           !contentMode && !fullMode && (widths[size] || widths.lg),
@@ -128,6 +141,7 @@ function ModalContent({ title, description, onClose, children, size, fullscreena
             {description && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>}
           </div>
           <div className="flex items-center gap-1">
+            {headerActions}
             {fullscreenable && (
               <button
                 type="button"
@@ -157,6 +171,31 @@ function preferredPopupStage() {
   return [0, 1, 2].includes(preferred) ? preferred : 0
 }
 
+function popupLayout() {
+  if (typeof window === 'undefined') return { desktop: false, sidebarHidden: true }
+  return {
+    desktop: window.matchMedia('(min-width: 1024px)').matches,
+    sidebarHidden: localStorage.getItem('postflow_sidebar_hidden') === 'true',
+  }
+}
+
+export function ModalLoading({ label = 'Loading details...' }) {
+  return (
+    <div className="flex min-h-[22rem] items-center justify-center p-6">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <span className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950/40 dark:text-brand-300">
+          <span className="absolute inset-0 rounded-2xl border-2 border-transparent border-t-brand-500 border-r-brand-300 animate-spin" />
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{label}</p>
+          <p className="mt-1 text-xs text-slate-400">Preparing the popup content...</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const badgeColors = {
   slate: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
@@ -168,9 +207,9 @@ const badgeColors = {
   gray: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
 }
 
-export function Badge({ color = 'slate', children, className }) {
+export function Badge({ color = 'slate', children, className, ...props }) {
   return (
-    <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium', badgeColors[color] || badgeColors.slate, className)}>
+    <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium', badgeColors[color] || badgeColors.slate, className)} {...props}>
       {children}
     </span>
   )

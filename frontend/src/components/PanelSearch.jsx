@@ -5,7 +5,8 @@ import clsx from 'clsx'
 
 const USER_SEARCH_ITEMS = [
   { label: 'Dashboard', to: '/app', keywords: 'home overview stats' },
-  { label: 'Composer', to: '/app/composer', keywords: 'create post write publish' },
+  { label: 'Feed', to: '/app/feed', keywords: 'explore rss news latest feeds articles' },
+  { label: 'Posts', to: '/app/posts', keywords: 'composer create post write publish drafts scheduled' },
   { label: 'Organizer', to: '/app/organizer', keywords: 'table kanban timeline calendar posts' },
   { label: 'Calendar', to: '/app/organizer', keywords: 'schedule drag drop dates' },
   { label: 'Planner', to: '/app/planner', keywords: 'plans notes ai draft' },
@@ -18,7 +19,7 @@ const USER_SEARCH_ITEMS = [
   { label: 'Pricing plan', to: '/app/pricing-plan', keywords: 'billing subscription package' },
   { label: 'Invite & earn', to: '/app/invite', keywords: 'referral affiliate earn' },
   { label: 'Workspaces', to: '/app/workspaces', keywords: 'workspace switch team space' },
-  { label: 'Team', to: '/app/team', keywords: 'members invite roles' },
+  { label: 'Integrations', to: '/app/integrations', keywords: 'google sheets drive airtable notion n8n csv rss wordpress webhooks api zapier dropbox onedrive box s3 figma canva slack discord teams' },
   { label: 'Developer', to: '/app/developer', keywords: 'api keys webhooks' },
 ]
 
@@ -72,7 +73,7 @@ export default function PanelSearch({ className }) {
           if (event.key === 'Enter' && results[0]) selectItem(results[0])
         }}
         placeholder="Search pages, tools, settings..."
-        className="h-9 w-full rounded-xl border border-slate-200 bg-white/90 pl-9 pr-9 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800/90 dark:text-white"
+        className="h-10 w-full rounded-xl border border-slate-200 bg-white/90 pl-9 pr-9 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800/90 dark:text-white"
       />
       {query && (
         <button
@@ -88,7 +89,7 @@ export default function PanelSearch({ className }) {
         </button>
       )}
       {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 transform-gpu overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-2xl will-change-transform dark:border-slate-700 dark:bg-slate-900">
           {results.length ? results.map((item) => (
             <button
               key={`${item.label}-${item.to}`}

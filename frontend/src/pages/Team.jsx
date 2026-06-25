@@ -1,22 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Building2, Clock3, Crown, Mail, RefreshCw, Search, ShieldCheck, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Building2, Clock3, Crown, RefreshCw, Search, ShieldCheck, Trash2, UserPlus, Users, X } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import { Badge, Button, Card, Input, PageLoader, ConfirmDialog } from '../components/ui'
-
-const ROLE_DETAILS = {
-  owner: { label: 'Owner', color: 'amber' },
-  admin: { label: 'Admin', color: 'rose' },
-  manager: { label: 'Manager', color: 'violet' },
-  editor: { label: 'Editor', color: 'indigo' },
-  viewer: { label: 'Viewer', color: 'slate' },
-}
+import { Badge, Button, Card, PageLoader, ConfirmDialog } from '../components/ui'
+import TeamInviteModal from '../components/team/TeamInviteModal'
+import RoleSelect from '../components/team/RoleSelect'
+import { ROLE_DETAILS } from '../components/team/teamRoles'
+import { DATA_CHANGED_EVENT } from '../lib/appEvents'
 
 export default function Team() {
-  const { workspaces, activeWorkspace, switchWorkspace } = useAuth()
+  return <TeamWorkspacePanel />
+}
+
+export function TeamWorkspacePanel({ embedded = false }) {
+  const { activeWorkspace } = useAuth()
   const [data, setData] = useState(null)
-  const [email, setEmail] = useState('')
-  const [role, setRole] = useState('editor')
   const [search, setSearch] = useState('')
   const [invitationSearch, setInvitationSearch] = useState('')
   const [busy, setBusy] = useState('')
@@ -26,8 +24,18 @@ export default function Team() {
   const [inviteOpen, setInviteOpen] = useState(false)
   const [tab, setTab] = useState('members')
 
-  const load = () => api.get('/team').then(({ data: response }) => setData(response))
-  useEffect(() => { load().catch(() => setData({ members: [], invitations: [], permissions: {} })) }, [])
+  const load = useCallback(() => api.get('/team').then(({ data: response }) => setData(response)), [])
+
+  useEffect(() => {
+    const refresh = () => load().catch(() => setData({ members: [], invitations: [], permissions: {} }))
+    refresh()
+    const interval = window.setInterval(refresh, 30000)
+    window.addEventListener(DATA_CHANGED_EVENT, refresh)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener(DATA_CHANGED_EVENT, refresh)
+    }
+  }, [load])
 
   const members = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -40,24 +48,6 @@ export default function Team() {
   }, [data, invitationSearch])
 
   const notify = (type, text) => setMessage({ type, text })
-
-  const invite = async (event) => {
-    event.preventDefault()
-    setBusy('invite')
-    setMessage(null)
-    try {
-      await api.post('/team/invite', { email, role })
-      setEmail('')
-      setInviteOpen(false)
-      setTab('invitations')
-      notify('success', 'Invitation sent successfully.')
-      await load()
-    } catch (error) {
-      notify('error', error.response?.data?.message || 'Could not send the invitation.')
-    } finally {
-      setBusy('')
-    }
-  }
 
   const updateRole = async (member, nextRole) => {
     setBusy(`role-${member.id}`)
@@ -108,37 +98,27 @@ export default function Team() {
     setConfirmInvitation(null)
   }
 
-  const changeWorkspace = async (slug) => {
-    if (!slug || slug === activeWorkspace?.slug) return
-    setBusy(`workspace-${slug}`)
-    try {
-      await switchWorkspace(slug)
-      window.location.reload()
-    } catch (error) {
-      notify('error', error.response?.data?.message || 'Could not switch workspace.')
-      setBusy('')
-    }
-  }
-
   if (!data) return <PageLoader />
 
   const invitations = data.invitations || []
   const canManage = Boolean(data.permissions?.can_manage)
   const isOwner = Boolean(data.permissions?.is_owner)
-  const assignableRoles = isOwner ? ['admin', 'manager', 'editor', 'viewer'] : ['manager', 'editor', 'viewer']
+  const assignableRoles = isOwner ? ['admin', 'manager', 'editor', 'viewer', 'client'] : ['manager', 'editor', 'viewer', 'client']
   const adminCount = data.members.filter((member) => ['owner', 'admin'].includes(member.role)).length
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Team</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Invite collaborators and give each person the access they need.</p>
+      {!embedded && (
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Team</h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Invite collaborators and give each person the access they need.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {canManage && <Button onClick={() => setInviteOpen(true)}><UserPlus className="h-4 w-4" /> Invite member</Button>}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {canManage && <Button onClick={() => setInviteOpen(true)}><UserPlus className="h-4 w-4" /> Invite member</Button>}
-        </div>
-      </div>
+      )}
 
       {message && (
         <div className={`rounded-xl border px-4 py-3 text-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400'}`}>
@@ -149,8 +129,8 @@ export default function Team() {
       <Card className="p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-start gap-4">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: activeWorkspace?.brand_color || '#4f46e5' }}>
-              <Building2 className="h-6 w-6" />
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl text-white" style={{ backgroundColor: activeWorkspace?.brand_color || '#4f46e5' }}>
+              {activeWorkspace?.logo_url ? <img src={activeWorkspace.logo_url} alt="" className="h-full w-full object-cover" /> : <Building2 className="h-6 w-6" />}
             </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -161,12 +141,7 @@ export default function Team() {
               <p className="mt-1 text-xs text-slate-400">{activeWorkspace?.slug || 'workspace'} · {activeWorkspace?.timezone || 'UTC'}</p>
             </div>
           </div>
-          <label className="block w-full lg:w-80">
-            <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Switch workspace team</span>
-            <select value={activeWorkspace?.slug || ''} onChange={(event) => changeWorkspace(event.target.value)} disabled={busy.startsWith('workspace-')} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-              {workspaces.map((workspace) => <option key={workspace.id} value={workspace.slug}>{workspace.name}</option>)}
-            </select>
-          </label>
+          {embedded && canManage && <Button onClick={() => setInviteOpen(true)}><UserPlus className="h-4 w-4" /> Invite member</Button>}
         </div>
       </Card>
 
@@ -208,24 +183,16 @@ export default function Team() {
         )}
       </Card>
 
-      {inviteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => event.target === event.currentTarget && setInviteOpen(false)}>
-          <Card className="w-full max-w-xl overflow-hidden">
-            <div className="flex items-start justify-between border-b border-slate-200 bg-slate-50/70 px-5 py-4 dark:border-slate-800 dark:bg-slate-800/40">
-              <div><h2 className="font-semibold text-slate-900 dark:text-white">Invite team member</h2><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">They will receive an email invitation valid for seven days.</p></div>
-              <button type="button" onClick={() => setInviteOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button>
-            </div>
-            <form onSubmit={invite} className="space-y-4 p-5">
-              <Input label="Email address" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="teammate@company.com" required />
-              <RoleSelect label="Role" value={role} roles={assignableRoles} onChange={setRole} />
-              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-                <Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancel</Button>
-                <Button type="submit" loading={busy === 'invite'}><Mail className="h-4 w-4" /> Send invite</Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
+      <TeamInviteModal
+        open={inviteOpen}
+        roles={assignableRoles}
+        onClose={() => setInviteOpen(false)}
+        onInvited={() => {
+          setTab('invitations')
+          notify('success', 'Invitation sent successfully.')
+          load()
+        }}
+      />
 
       <ConfirmDialog
         open={Boolean(confirmRemove)}
@@ -309,15 +276,4 @@ function InvitationsTable({ invitations, canManage, busy, invitationAction, setC
 function Summary({ icon: Icon, label, value, tone }) {
   const colors = { brand: 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300', violet: 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300', amber: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300' }
   return <Card className="flex items-center gap-4 p-4"><span className={`flex h-11 w-11 items-center justify-center rounded-xl ${colors[tone]}`}><Icon className="h-5 w-5" /></span><div><p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p><p className="text-sm text-slate-500 dark:text-slate-400">{label}</p></div></Card>
-}
-
-function RoleSelect({ label, value, roles, onChange, disabled, compact = false }) {
-  return (
-    <label className="block">
-      {label && <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>}
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className={`rounded-xl border border-slate-300 bg-white text-sm capitalize text-slate-700 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 ${compact ? 'px-3 py-1.5' : 'w-full px-3.5 py-2.5'}`}>
-        {roles.map((item) => <option key={item} value={item}>{ROLE_DETAILS[item]?.label || item}</option>)}
-      </select>
-    </label>
-  )
 }

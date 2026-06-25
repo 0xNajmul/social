@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Bell, CreditCard, Maximize2, Moon, Palette, PlugZap, Save, Settings2, ShieldCheck, Sun, UserRound } from 'lucide-react'
+import { Bell, CreditCard, Maximize2, Moon, Palette, PlugZap, Save, Settings2, ShieldCheck, Sun } from 'lucide-react'
 import api from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Input, PageLoader } from '../components/ui'
@@ -46,7 +46,6 @@ export default function Settings() {
   const [settings, setSettings] = useState(() => buildAccountSettings(user))
   const [subscription, setSubscription] = useState(undefined)
   const [usage, setUsage] = useState({})
-  const [accountWorkspaces, setAccountWorkspaces] = useState([])
   const [tab, setTab] = useState(() => TABS.some((item) => item.key === searchParams.get('tab')) ? searchParams.get('tab') : 'general')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
@@ -56,12 +55,10 @@ export default function Settings() {
       .then(({ data }) => {
         setSubscription(data.data)
         setUsage(data.usage || {})
-        setAccountWorkspaces(data.workspaces || [])
       })
       .catch(() => {
         setSubscription(null)
         setUsage({})
-        setAccountWorkspaces([])
       })
   }, [])
 
@@ -115,50 +112,31 @@ export default function Settings() {
           <Badge color="indigo">Account settings</Badge>
         </div>
 
-        <div className="flex overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          {TABS.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => changeTab(key)}
-              className={`inline-flex whitespace-nowrap items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${tab === key ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white'}`}
-            >
-              <Icon className="h-4 w-4" /> {label}
-            </button>
-          ))}
-        </div>
       </div>
 
       {message && <div className={`rounded-xl border px-4 py-3 text-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400'}`}>{message.text}</div>}
 
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        <aside className="space-y-4">
-          <Card className="p-5">
-            <div className="flex items-center gap-3">
-              {user?.avatar_url ? (
-                <img src={user.avatar_url} alt="" className="h-14 w-14 rounded-2xl object-cover" />
-              ) : (
-                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300"><UserRound className="h-7 w-7" /></span>
-              )}
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-slate-900 dark:text-white">{user?.name}</p>
-                <p className="truncate text-xs text-slate-500 dark:text-slate-400">{user?.email}</p>
-              </div>
+        <aside className="h-fit space-y-4 lg:sticky lg:top-20">
+          <Card className="p-2">
+            <div className="px-3 py-2">
+              <p className="text-sm font-bold text-slate-900 dark:text-white">Settings sections</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Choose what to manage.</p>
             </div>
-            <div className="mt-5 space-y-3 rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
-              <Info label="Package" value={planName} />
-              <Info label="Status" value={subscription?.status_label || 'Not active'} />
-              <Info label="Workspaces" value={accountWorkspaces.length} />
+            <div className="mt-1 grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
+              {TABS.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => changeTab(key)}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${tab === key ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'}`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" /> <span className="min-w-0 truncate">{label}</span>
+                </button>
+              ))}
             </div>
           </Card>
 
-          <Card className="p-5">
-            <h2 className="font-semibold text-slate-900 dark:text-white">Account usage</h2>
-            <div className="mt-4 space-y-4">
-              {usageEntries.slice(0, 5).map(([key, metric]) => <Usage key={key} label={key.replace(/_/g, ' ')} metric={metric} />)}
-              {usageEntries.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400">Usage will appear after your package is active.</p>}
-            </div>
-          </Card>
         </aside>
 
         <form onSubmit={save} className="space-y-6">
@@ -274,10 +252,6 @@ function Usage({ label, metric }) {
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-brand-500" style={{ width: `${metric.limit ? percent : 12}%` }} /></div>
     </div>
   )
-}
-
-function Info({ label, value }) {
-  return <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-0.5 truncate text-sm font-medium text-slate-800 dark:text-slate-100">{value}</p></div>
 }
 
 function PlanBox({ label, value }) {

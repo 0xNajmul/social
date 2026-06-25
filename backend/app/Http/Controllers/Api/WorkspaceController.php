@@ -10,6 +10,7 @@ use App\Services\WorkspaceProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class WorkspaceController extends Controller
 {
@@ -77,13 +78,29 @@ class WorkspaceController extends Controller
         $workspace = workspace();
         $this->authorize('update', $workspace);
 
+        if ($request->has('settings') && is_string($request->input('settings'))) {
+            $decodedSettings = json_decode($request->input('settings'), true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $request->merge(['settings' => $decodedSettings]);
+            }
+        }
+
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:1000'],
             'timezone' => ['sometimes', 'string', 'timezone'],
             'brand_color' => ['nullable', 'string', 'max:9'],
             'settings' => ['nullable', 'array'],
+            'logo' => ['nullable', 'image', 'max:2048'],
         ]);
+
+        if ($request->hasFile('logo')) {
+            if ($workspace->logo_path) {
+                Storage::disk('public')->delete($workspace->logo_path);
+            }
+            $data['logo_path'] = $request->file('logo')->store('workspace-logos', 'public');
+        }
+        unset($data['logo']);
 
         $workspace->update($data);
 

@@ -11,6 +11,7 @@ const UserDetail = lazy(() => import('./pages/UserDetail'))
 const Roles = lazy(() => import('./pages/Roles'))
 const Posts = lazy(() => import('./pages/Posts'))
 const PostDetail = lazy(() => import('./pages/PostDetail'))
+const Feed = lazy(() => import('./pages/Feed'))
 const AdminDataPage = lazy(() => import('./pages/AdminDataPage'))
 const Plans = lazy(() => import('./pages/Plans'))
 const Workspaces = lazy(() => import('./pages/Workspaces'))
@@ -44,6 +45,7 @@ export default function App() {
               <Route path="roles" element={<Roles />} />
               <Route path="posts" element={<Posts />} />
               <Route path="posts/:id" element={<PostDetail />} />
+              <Route path="feed" element={<Feed />} />
               <Route path="planners" element={<AdminDataPage type="planners" />} />
               <Route path="media" element={<AdminDataPage type="media" />} />
               <Route path="automations" element={<AdminDataPage type="automations" />} />

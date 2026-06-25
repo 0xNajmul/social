@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react'
-import { Bell, CheckCheck, CircleAlert, CircleCheck, Link2, Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Bell, CheckCheck, CircleAlert, CircleCheck, Link2 } from 'lucide-react'
 import api from '../lib/api'
 import { Button, Card, PageLoader } from '../components/ui'
+import { NOTIFICATIONS_CHANGED_EVENT, broadcastNotificationsChanged } from '../lib/appEvents'
+import useInfiniteList from '../hooks/useInfiniteList'
 
 export default function Notifications() {
+  const navigate = useNavigate()
   const [notifications, setNotifications] = useState(null)
   const [unreadCount, setUnreadCount] = useState(0)
   const [busy, setBusy] = useState(false)
 
-  const load = () => {
+  const load = useCallback(() => {
     api.get('/notifications')
       .then(({ data }) => {
         setNotifications(data.data || [])
@@ -18,24 +22,41 @@ export default function Notifications() {
         setNotifications([])
         setUnreadCount(0)
       })
-  }
+  }, [])
 
-  useEffect(load, [])
+  useEffect(() => {
+    load()
+    const refresh = (event) => {
+      if (typeof event.detail?.unreadCount === 'number') setUnreadCount(event.detail.unreadCount)
+      if (event.detail?.reload) load()
+    }
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refresh)
+  }, [load])
 
   const markRead = async (notification) => {
-    if (notification.read_at) return
-    setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item))
-    setUnreadCount((count) => Math.max(0, count - 1))
-    await api.post(`/notifications/${notification.id}/read`).catch(load)
+    if (!notification.read_at) {
+      setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item))
+      const nextUnreadCount = Math.max(0, unreadCount - 1)
+      setUnreadCount(nextUnreadCount)
+      broadcastNotificationsChanged({ unreadCount: nextUnreadCount })
+      await api.post(`/notifications/${notification.id}/read`).catch(load)
+      broadcastNotificationsChanged({ unreadCount: nextUnreadCount, reload: true })
+    }
+    openNotificationTarget(notification, navigate)
   }
 
   const markAllRead = async () => {
     setBusy(true)
     setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at || new Date().toISOString() })))
     setUnreadCount(0)
+    broadcastNotificationsChanged({ unreadCount: 0 })
     await api.post('/notifications/read-all').catch(load)
+    broadcastNotificationsChanged({ unreadCount: 0, reload: true })
     setBusy(false)
   }
+
+  const { hasMore, items: pagedNotifications, sentinelRef } = useInfiniteList(notifications || [])
 
   if (!notifications) return <PageLoader />
 
@@ -54,7 +75,7 @@ export default function Notifications() {
           <p className="font-semibold text-slate-900 dark:text-white">{unreadCount} unread notifications</p>
         </div>
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
-          {notifications.map((notification) => <NotificationRow key={notification.id} notification={notification} onClick={() => markRead(notification)} />)}
+          {pagedNotifications.map((notification) => <NotificationRow key={notification.id} notification={notification} onClick={() => markRead(notification)} />)}
           {notifications.length === 0 && (
             <div className="px-6 py-16 text-center">
               <Bell className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-700" />
@@ -63,9 +84,24 @@ export default function Notifications() {
             </div>
           )}
         </div>
+        {hasMore && <div ref={sentinelRef} className="px-5 py-4 text-center text-xs font-semibold text-slate-400">Loading more notifications...</div>}
       </Card>
     </div>
   )
+}
+
+function openNotificationTarget(notification, navigate) {
+  const data = notification.data || {}
+  const type = data.type || ''
+  if (type === 'workspace.invitation' && data.invitation_token) {
+    navigate(`/invitations/${data.invitation_token}`)
+  } else if (type.startsWith('post.') && data.post_id) {
+    window.dispatchEvent(new CustomEvent('postflow:open-post', { detail: { id: data.post_id } }))
+  } else if (type.startsWith('post.')) {
+    navigate('/app/organizer')
+  } else if (type === 'account.token_expiring') {
+    navigate('/app/accounts')
+  }
 }
 
 function NotificationRow({ notification, onClick }) {

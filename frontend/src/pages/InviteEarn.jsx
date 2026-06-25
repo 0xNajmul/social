@@ -1,40 +1,42 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BarChart3, Copy, DollarSign, Gift, Link2, TrendingUp, Users, WalletCards } from 'lucide-react'
 import clsx from 'clsx'
+import api from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import { Badge, Button, Card, Input } from '../components/ui'
-
-const REFERRAL_HISTORY = [
-  { id: 'RF-1042', name: 'Northstar Studio', package: 'Business', status: 'Subscribed', date: 'Jun 12, 2026', reward: '$24.50' },
-  { id: 'RF-1037', name: 'Apex Creators', package: 'Trial', status: 'Trial', date: 'Jun 8, 2026', reward: 'Pending' },
-  { id: 'RF-1028', name: 'Pixel Forge', package: 'Free', status: 'Signed up', date: 'May 28, 2026', reward: 'Pending' },
-]
-
-const MONTHLY_HISTORY = [
-  { month: 'June 2026', referrals: 3, upgrades: 1, commission: '$24.50', status: 'Open' },
-  { month: 'May 2026', referrals: 7, upgrades: 4, commission: '$118.00', status: 'Paid' },
-  { month: 'April 2026', referrals: 4, upgrades: 2, commission: '$72.00', status: 'Paid' },
-]
-
-const USAGE_HISTORY = [
-  { date: 'Jun 15, 2026', type: 'Balance credit', amount: '+$24.50', note: 'Business plan renewal' },
-  { date: 'May 31, 2026', type: 'Withdraw request', amount: '-$100.00', note: 'Bank payout' },
-  { date: 'May 20, 2026', type: 'Balance credit', amount: '+$42.00', note: 'Two Pro upgrades' },
-]
+import { Badge, Button, Card, EmptyState, Input, PageLoader } from '../components/ui'
 
 const TABS = [
-  { key: 'referrals', label: 'Referral history', icon: Users },
-  { key: 'monthly', label: 'Affiliate monthly history', icon: WalletCards },
-  { key: 'usage', label: 'Withdraw/usage history', icon: DollarSign },
+  { key: 'invites', label: 'Invite activity', icon: Users },
+  { key: 'packages', label: 'Workspace packages', icon: WalletCards },
+  { key: 'ledger', label: 'Reward ledger', icon: DollarSign },
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
 export default function InviteEarn() {
-  const { user, activeWorkspace } = useAuth()
+  const { user, activeWorkspace, workspaces = [] } = useAuth()
   const [copied, setCopied] = useState(false)
-  const [tab, setTab] = useState('referrals')
+  const [tab, setTab] = useState('invites')
+  const [teamData, setTeamData] = useState(null)
   const memberId = user?.member_id || user?.referral_code || buildMemberId(user?.id)
   const referralUrl = useMemo(() => `${window.location.origin}/register?ref=${encodeURIComponent(memberId)}`, [memberId])
+
+  useEffect(() => {
+    let active = true
+    api.get('/team')
+      .then(({ data }) => {
+        if (active) setTeamData({ members: data.members || [], invitations: data.invitations || [], permissions: data.permissions || {} })
+      })
+      .catch(() => {
+        if (active) setTeamData({ members: [], invitations: [], permissions: {} })
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const pendingInvitations = teamData?.invitations || []
+  const members = teamData?.members || []
+  const activePlan = activeWorkspace?.subscription?.plan?.name || 'Free'
 
   const copyLink = async () => {
     await navigator.clipboard?.writeText(referralUrl)
@@ -42,12 +44,14 @@ export default function InviteEarn() {
     window.setTimeout(() => setCopied(false), 1600)
   }
 
+  if (!teamData) return <PageLoader />
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Invite & earn</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">Share your member referral link, track signups, and monitor affiliate rewards from one place.</p>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">Share your member link and track real workspace invite activity from this account.</p>
         </div>
         <Card className="w-full p-3 xl:max-w-xl">
           <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -61,10 +65,10 @@ export default function InviteEarn() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Stat icon={Users} label="Total referrals" value="14" hint="3 this month" />
-        <Stat icon={WalletCards} label="Balance" value="$214.50" hint="Available rewards" />
-        <Stat icon={TrendingUp} label="This month" value="$24.50" hint="Eligible commission" />
-        <Stat icon={Gift} label="Current package" value={activeWorkspace?.subscription?.plan?.name || 'Free'} hint="Workspace plan" />
+        <Stat icon={Users} label="Pending invites" value={pendingInvitations.length} hint={`${members.length} current members`} />
+        <Stat icon={WalletCards} label="Workspaces" value={workspaces.length} hint={`${activeWorkspace?.name || 'Current workspace'} active`} />
+        <Stat icon={TrendingUp} label="Reward balance" value={formatMoney(0)} hint="No payout records yet" />
+        <Stat icon={Gift} label="Current package" value={activePlan} hint="Workspace plan" />
       </div>
 
       <Card className="overflow-hidden">
@@ -85,49 +89,53 @@ export default function InviteEarn() {
           ))}
         </div>
 
-        {tab === 'referrals' && (
-          <DataTable columns={['Referral ID', 'Workspace', 'Package', 'Status', 'Joined', 'Reward']}>
-            {REFERRAL_HISTORY.map((item) => (
-              <tr key={item.id} className="border-t border-slate-100 dark:border-slate-800">
-                <td className="px-4 py-3 font-mono text-xs text-slate-500">{item.id}</td>
-                <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{item.name}</td>
-                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.package}</td>
-                <td className="px-4 py-3"><Badge color={item.status === 'Subscribed' ? 'emerald' : 'amber'}>{item.status}</Badge></td>
-                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.date}</td>
-                <td className="px-4 py-3 font-semibold text-emerald-600 dark:text-emerald-400">{item.reward}</td>
-              </tr>
-            ))}
-          </DataTable>
+        {tab === 'invites' && (
+          pendingInvitations.length ? (
+            <DataTable columns={['Email', 'Role', 'Invited by', 'Created', 'Expires', 'Status']}>
+              {pendingInvitations.map((item) => (
+                <tr key={item.id} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{item.email}</td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{formatRole(item.role)}</td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.invited_by || 'Workspace admin'}</td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{formatDate(item.created_at)}</td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{formatDate(item.expires_at)}</td>
+                  <td className="px-4 py-3"><Badge color={item.is_expired ? 'rose' : 'amber'}>{item.is_expired ? 'Expired' : 'Pending'}</Badge></td>
+                </tr>
+              ))}
+            </DataTable>
+          ) : (
+            <EmptyPane icon={Users} title="No pending invites" description="Workspace invitations you send will appear here." />
+          )
         )}
 
-        {tab === 'monthly' && (
-          <DataTable columns={['Month', 'Referrals', 'Upgrades', 'Commission', 'Status']}>
-            {MONTHLY_HISTORY.map((item) => (
-              <tr key={item.month} className="border-t border-slate-100 dark:border-slate-800">
-                <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{item.month}</td>
-                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.referrals}</td>
-                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.upgrades}</td>
-                <td className="px-4 py-3 font-semibold text-emerald-600 dark:text-emerald-400">{item.commission}</td>
-                <td className="px-4 py-3"><Badge color={item.status === 'Paid' ? 'emerald' : 'sky'}>{item.status}</Badge></td>
-              </tr>
-            ))}
-          </DataTable>
+        {tab === 'packages' && (
+          workspaces.length ? (
+            <DataTable columns={['Workspace', 'Role', 'Package', 'Members', 'Accounts']}>
+              {workspaces.map((workspace) => (
+                <tr key={workspace.id} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-slate-900 dark:text-white">{workspace.name}</p>
+                    <p className="text-xs text-slate-400">{workspace.public_id || workspace.slug}</p>
+                  </td>
+                  <td className="px-4 py-3"><Badge color={workspace.role === 'owner' ? 'amber' : 'indigo'}>{formatRole(workspace.role)}</Badge></td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{workspace.subscription?.plan?.name || 'Free'}</td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{workspace.members_count ?? 0}</td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{workspace.social_accounts_count ?? 0}</td>
+                </tr>
+              ))}
+            </DataTable>
+          ) : (
+            <EmptyPane icon={WalletCards} title="No workspaces found" description="Create or join a workspace to see package data." />
+          )
         )}
 
-        {tab === 'usage' && (
-          <DataTable columns={['Date', 'Type', 'Amount', 'Note']}>
-            {USAGE_HISTORY.map((item) => (
-              <tr key={`${item.date}-${item.type}`} className="border-t border-slate-100 dark:border-slate-800">
-                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.date}</td>
-                <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{item.type}</td>
-                <td className={clsx('px-4 py-3 font-semibold', item.amount.startsWith('+') ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>{item.amount}</td>
-                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{item.note}</td>
-              </tr>
-            ))}
-          </DataTable>
+        {tab === 'ledger' && (
+          <EmptyPane icon={DollarSign} title="No reward ledger yet" description="Payout and commission rows will appear after affiliate income records are recorded." />
         )}
 
-        {tab === 'analytics' && <AffiliateAnalytics />}
+        {tab === 'analytics' && (
+          <InviteAnalytics memberId={memberId} members={members} pendingInvitations={pendingInvitations} workspaces={workspaces} />
+        )}
       </Card>
     </div>
   )
@@ -157,34 +165,36 @@ function DataTable({ columns, children }) {
   )
 }
 
-function AffiliateAnalytics() {
-  const bars = [42, 64, 38, 88, 73, 104, 92]
-
+function InviteAnalytics({ memberId, members, pendingInvitations, workspaces }) {
   return (
-    <div className="grid gap-4 p-5 lg:grid-cols-[1.4fr_0.6fr]">
+    <div className="grid gap-4 p-5 lg:grid-cols-[1.2fr_0.8fr]">
       <div className="rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-semibold text-slate-900 dark:text-white">Referral conversion trend</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Demo analytics for clicks, trials, upgrades, and commissions.</p>
+            <h2 className="font-semibold text-slate-900 dark:text-white">Invite status</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Real account and workspace invite counts for member {memberId}.</p>
           </div>
           <Link2 className="h-5 w-5 text-brand-500" />
         </div>
-        <div className="mt-6 flex h-60 items-end gap-3">
-          {bars.map((height, index) => (
-            <div key={index} className="flex flex-1 flex-col items-center gap-2">
-              <div className="w-full rounded-t-xl bg-gradient-to-t from-brand-600 to-sky-400" style={{ height }} />
-              <span className="text-[10px] text-slate-400">W{index + 1}</span>
-            </div>
-          ))}
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <MiniAnalytic label="Workspace members" value={members.length} />
+          <MiniAnalytic label="Pending invites" value={pendingInvitations.length} />
+          <MiniAnalytic label="Workspaces" value={workspaces.length} />
         </div>
       </div>
-      <div className="grid gap-3">
-        <MiniAnalytic label="Referral clicks" value="1,284" />
-        <MiniAnalytic label="Trial signups" value="82" />
-        <MiniAnalytic label="Paid upgrades" value="17" />
-        <MiniAnalytic label="Conversion rate" value="20.7%" />
-      </div>
+      <EmptyState
+        icon={DollarSign}
+        title="Affiliate income not recorded"
+        description="The app has no payout records for this member yet, so reward analytics remain zero."
+      />
+    </div>
+  )
+}
+
+function EmptyPane({ icon, title, description }) {
+  return (
+    <div className="p-5">
+      <EmptyState icon={icon} title={title} description={description} />
     </div>
   )
 }
@@ -193,11 +203,26 @@ function MiniAnalytic({ label, value }) {
   return (
     <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
       <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+      <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{Number(value || 0).toLocaleString()}</p>
     </div>
   )
 }
 
 function buildMemberId(id) {
   return String(Number(id || 0) * 1000003 + 7919).padStart(10, '0').slice(0, 10)
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString()
+}
+
+function formatMoney(value) {
+  return Number(value || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' })
+}
+
+function formatRole(role) {
+  if (!role) return 'Member'
+  return String(role).charAt(0).toUpperCase() + String(role).slice(1)
 }

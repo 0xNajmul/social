@@ -32,7 +32,23 @@ api.interceptors.request.use((config) => {
 })
 
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    const method = String(res.config?.method || 'get').toLowerCase()
+    const silentPaths = ['/notifications/', '/notifications/read-all']
+    const url = res.config?.url || ''
+
+    if (['post', 'put', 'patch', 'delete'].includes(method) && !silentPaths.some((path) => url.includes(path))) {
+      window.dispatchEvent(new CustomEvent('postflow:data-changed', {
+        detail: {
+          method,
+          url,
+          status: res.status,
+        },
+      }))
+    }
+
+    return res
+  },
   (error) => {
     if (error.response?.status === 401 && !window.location.pathname.startsWith('/login')) {
       tokenStore.clear()

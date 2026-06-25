@@ -10,13 +10,14 @@ const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Composer = lazy(() => import('./pages/Composer'))
+const Feed = lazy(() => import('./pages/Feed'))
+const Posts = lazy(() => import('./pages/Posts'))
 const Accounts = lazy(() => import('./pages/Accounts'))
 const Media = lazy(() => import('./pages/Media'))
 const MediaEdit = lazy(() => import('./pages/MediaEdit'))
 const Automations = lazy(() => import('./pages/Automations'))
+const AutomationPlayground = lazy(() => import('./pages/AutomationPlayground'))
 const Analytics = lazy(() => import('./pages/Analytics'))
-const Team = lazy(() => import('./pages/Team'))
 const Billing = lazy(() => import('./pages/Billing'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Developer = lazy(() => import('./pages/Developer'))
@@ -25,6 +26,7 @@ const Planner = lazy(() => import('./pages/Planner'))
 const Organizer = lazy(() => import('./pages/Organizer'))
 const Workspaces = lazy(() => import('./pages/Workspaces'))
 const WorkspaceEdit = lazy(() => import('./pages/WorkspaceEdit'))
+const Integrations = lazy(() => import('./pages/Integrations'))
 const InviteEarn = lazy(() => import('./pages/InviteEarn'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const AuthTokenLanding = lazy(() => import('./pages/AuthTokenLanding'))
@@ -62,9 +64,11 @@ export default function App() {
               }
             >
               <Route index element={<Dashboard />} />
+              <Route path="feed" element={<Feed />} />
               <Route path="workspaces" element={<Workspaces />} />
               <Route path="workspaces/:id" element={<WorkspaceEdit />} />
-              <Route path="composer" element={<Composer />} />
+              <Route path="posts" element={<Posts />} />
+              <Route path="composer" element={<Navigate to="/app/posts" replace />} />
               <Route path="calendar" element={<Navigate to="/app/organizer" replace />} />
               <Route path="organizer" element={<Organizer />} />
               <Route path="planner" element={<Planner />} />
@@ -72,8 +76,8 @@ export default function App() {
               <Route path="media" element={<Media />} />
               <Route path="media/:id/edit" element={<MediaEdit />} />
               <Route path="automations" element={<Automations />} />
+              <Route path="automations/:id" element={<AutomationPlayground />} />
               <Route path="analytics" element={<Analytics />} />
-              <Route path="team" element={<Team />} />
               <Route path="billing" element={<Billing />} />
               <Route path="pricing-plan" element={<Billing />} />
               <Route path="settings" element={<Settings />} />
@@ -81,6 +85,7 @@ export default function App() {
               <Route path="profile" element={<Profile />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="invite" element={<InviteEarn />} />
+              <Route path="integrations" element={<Integrations />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

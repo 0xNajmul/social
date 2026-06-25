@@ -19,7 +19,7 @@ class WorkspaceProvisioner
 {
     public function create(User $owner, string $name, ?Plan $plan = null, ?string $description = null): Workspace
     {
-        return DB::transaction(function () use ($owner, $name, $plan) {
+        return DB::transaction(function () use ($owner, $name, $plan, $description) {
             $plan ??= Plan::where('is_active', true)->orderBy('price_monthly')->first();
             $trialDays = (int) PlatformSetting::valueFor('default_trial_days', $plan?->trial_days ?? 14);
 

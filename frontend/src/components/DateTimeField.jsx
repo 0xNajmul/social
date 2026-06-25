@@ -1,5 +1,6 @@
 import { CalendarDays, Clock3 } from 'lucide-react'
 import clsx from 'clsx'
+import { browserTimeZone } from '../lib/datetime'
 
 export default function DateTimeField({ label, type = 'date', value, onChange, error, className, ...props }) {
   const Icon = type === 'datetime-local' ? Clock3 : CalendarDays
@@ -20,6 +21,9 @@ export default function DateTimeField({ label, type = 'date', value, onChange, e
           {...props}
         />
       </span>
+      {type === 'datetime-local' && !error && (
+        <span className="mt-1 block text-xs text-slate-400">Timezone: {browserTimeZone()}</span>
+      )}
       {error && <span className="mt-1 block text-xs text-rose-500">{error}</span>}
     </label>
   )

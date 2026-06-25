@@ -13,6 +13,7 @@ enum WorkspaceRole: string
     case Manager = 'manager';
     case Editor = 'editor';
     case Viewer = 'viewer';
+    case Client = 'client';
 
     public function label(): string
     {
@@ -30,6 +31,7 @@ enum WorkspaceRole: string
             self::Manager => 30,
             self::Editor => 20,
             self::Viewer => 10,
+            self::Client => 5,
         };
     }
 

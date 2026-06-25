@@ -10,6 +10,7 @@ class RssFeed extends Model
 {
     protected $fillable = [
         'workspace_id', 'automation_id', 'title', 'url',
+        'country', 'category', 'status', 'description',
         'last_item_guid', 'last_fetched_at',
     ];
 
@@ -22,6 +23,12 @@ class RssFeed extends Model
     public function automation(): BelongsTo
     {
         return $this->belongsTo(Automation::class);
+    }
+
+    /** @return BelongsTo<Workspace, $this> */
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
     }
 
     /** @return HasMany<RssFeedItem, $this> */

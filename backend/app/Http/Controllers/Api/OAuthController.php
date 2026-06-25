@@ -76,7 +76,8 @@ class OAuthController extends Controller
         $group = config("social.platforms.{$platform}.group", $provider);
         $credentials = config("services.{$group}");
 
-        if (empty($credentials['client_id']) || empty($credentials['client_secret']) || empty($credentials['redirect'])) {
+        $requiresClientSecret = $this->oauthGroup($platform) !== 'twitter';
+        if (empty($credentials['client_id']) || empty($credentials['redirect']) || ($requiresClientSecret && empty($credentials['client_secret']))) {
             return redirect("{$accountsUrl}?oauth_error=missing_credentials");
         }
 
@@ -85,11 +86,16 @@ class OAuthController extends Controller
                 'facebook' => $this->connectFacebook($platform, $workspace, $user, $code->toString(), $credentials),
                 'instagram' => $this->connectInstagram($workspace, $user, $code->toString(), $credentials),
                 'tiktok' => $this->connectTikTok($workspace, $user, $code->toString(), $credentials),
-                'google' => $this->connectYouTube($platform, $workspace, $user, $code->toString(), $credentials),
+                'google' => $platform === 'google_business'
+                    ? $this->connectGoogleBusiness($workspace, $user, $code->toString(), $credentials)
+                    : $this->connectYouTube($platform, $workspace, $user, $code->toString(), $credentials),
+                'twitter' => $this->connectTwitter($workspace, $user, $code->toString(), $credentials, $state),
                 'linkedin' => $this->connectLinkedIn($platform, $workspace, $user, $code->toString(), $credentials),
                 'pinterest' => $this->connectPinterest($workspace, $user, $code->toString(), $credentials),
+                'threads' => $this->connectThreads($workspace, $user, $code->toString(), $credentials),
                 'mastodon' => $this->connectMastodon($workspace, $user, $code->toString(), $credentials),
                 'reddit' => $this->connectReddit($workspace, $user, $code->toString(), $credentials),
+                'snapchat' => $this->connectSnapchat($workspace, $user, $code->toString(), $credentials),
                 default => throw new \RuntimeException("OAuth callback not implemented for {$platform}."),
             };
         } catch (\Throwable $e) {
@@ -487,6 +493,198 @@ class OAuthController extends Controller
         );
     }
 
+    protected function connectTwitter(Workspace $workspace, User $user, string $code, array $credentials, array $state): SocialAccount
+    {
+        $codeVerifier = (string) ($state['code_verifier'] ?? '');
+        if ($codeVerifier === '') {
+            throw new \RuntimeException('X OAuth session is missing its PKCE verifier. Start the connection again from Accounts.');
+        }
+
+        $request = Http::asForm()->timeout(20);
+        if (! empty($credentials['client_secret'])) {
+            $request = $request->withBasicAuth($credentials['client_id'], $credentials['client_secret']);
+        }
+
+        $tokenResponse = $request->post('https://api.twitter.com/2/oauth2/token', [
+            'grant_type' => 'authorization_code',
+            'code' => $code,
+            'redirect_uri' => $credentials['redirect'],
+            'client_id' => $credentials['client_id'],
+            'code_verifier' => $codeVerifier,
+        ]);
+
+        if (! $tokenResponse->successful()) {
+            throw new \RuntimeException(
+                $tokenResponse->json('error_description')
+                ?? $tokenResponse->json('error')
+                ?? 'X token exchange failed.'
+            );
+        }
+
+        $tokens = $tokenResponse->json();
+        $accessToken = $tokens['access_token'] ?? null;
+        if (! $accessToken) {
+            throw new \RuntimeException('X did not return an access token.');
+        }
+
+        $profileResponse = Http::withToken($accessToken)
+            ->timeout(20)
+            ->get('https://api.twitter.com/2/users/me', [
+                'user.fields' => 'id,name,username,profile_image_url,verified',
+            ]);
+
+        if (! $profileResponse->successful()) {
+            throw new \RuntimeException($profileResponse->json('detail') ?? 'Could not load the X profile.');
+        }
+
+        $profile = $profileResponse->json('data', []);
+        $accountId = (string) ($profile['id'] ?? '');
+        $username = (string) ($profile['username'] ?? '');
+        if ($accountId === '') {
+            throw new \RuntimeException('X did not return a user ID.');
+        }
+
+        $scope = preg_split('/[\s,]+/', trim((string) ($tokens['scope'] ?? ''))) ?: [];
+
+        return SocialAccount::upsertConnection(
+            [
+                'workspace_id' => $workspace->id,
+                'platform' => 'twitter',
+                'provider_account_id' => $accountId,
+            ],
+            [
+                'connected_by' => $user->id,
+                'name' => $profile['name'] ?? ($username ? '@'.$username : 'X Account'),
+                'username' => $username ? '@'.ltrim($username, '@') : null,
+                'avatar_url' => $profile['profile_image_url'] ?? null,
+                'profile_url' => $username ? "https://x.com/{$username}" : null,
+                'access_token' => $accessToken,
+                'refresh_token' => $tokens['refresh_token'] ?? null,
+                'token_meta' => [
+                    'scopes' => array_values(array_filter($scope)),
+                    'token_type' => $tokens['token_type'] ?? 'bearer',
+                    'verified' => $profile['verified'] ?? null,
+                ],
+                'token_expires_at' => isset($tokens['expires_in']) ? now()->addSeconds((int) $tokens['expires_in']) : null,
+                'status' => 'active',
+                'status_message' => null,
+                'settings' => ['verified' => $profile['verified'] ?? null],
+                'last_synced_at' => now(),
+            ],
+        );
+    }
+
+    /**
+     * @return array<int, SocialAccount>
+     */
+    protected function connectGoogleBusiness(Workspace $workspace, User $user, string $code, array $credentials): array
+    {
+        $tokenResponse = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+            'code' => $code,
+            'client_id' => $credentials['client_id'],
+            'client_secret' => $credentials['client_secret'],
+            'redirect_uri' => $credentials['redirect'],
+            'grant_type' => 'authorization_code',
+        ]);
+
+        if (! $tokenResponse->successful()) {
+            throw new \RuntimeException($tokenResponse->json('error_description') ?? 'Google token exchange failed.');
+        }
+
+        $tokens = $tokenResponse->json();
+        $accessToken = $tokens['access_token'] ?? null;
+        if (! $accessToken) {
+            throw new \RuntimeException('Google did not return an access token.');
+        }
+
+        $accountsResponse = Http::withToken($accessToken)
+            ->timeout(20)
+            ->get('https://mybusinessaccountmanagement.googleapis.com/v1/accounts');
+
+        if (! $accountsResponse->successful()) {
+            throw new \RuntimeException('Could not load Google Business Profile accounts. Enable the Business Profile APIs for this Google Cloud project.');
+        }
+
+        $googleAccounts = $accountsResponse->json('accounts', []);
+        if (empty($googleAccounts)) {
+            throw new \RuntimeException('No Google Business Profile accounts were returned for this Google user.');
+        }
+
+        $created = [];
+        foreach ($googleAccounts as $googleAccount) {
+            $accountName = (string) ($googleAccount['name'] ?? '');
+            if ($accountName === '') {
+                continue;
+            }
+
+            $locationsResponse = Http::withToken($accessToken)
+                ->timeout(20)
+                ->get("https://mybusinessbusinessinformation.googleapis.com/v1/{$accountName}/locations", [
+                    'readMask' => 'name,title,storefrontAddress,metadata,profile,websiteUri',
+                    'pageSize' => 100,
+                ]);
+
+            $locations = $locationsResponse->successful() ? $locationsResponse->json('locations', []) : [];
+            if (empty($locations)) {
+                $created[] = $this->upsertGoogleBusinessAccount($workspace, $user, $accessToken, $tokens, $googleAccount, null);
+                continue;
+            }
+
+            foreach ($locations as $location) {
+                $created[] = $this->upsertGoogleBusinessAccount($workspace, $user, $accessToken, $tokens, $googleAccount, $location);
+            }
+        }
+
+        if (empty($created)) {
+            throw new \RuntimeException('Google Business Profile did not return a usable account or location.');
+        }
+
+        return $created;
+    }
+
+    protected function upsertGoogleBusinessAccount(
+        Workspace $workspace,
+        User $user,
+        string $accessToken,
+        array $tokens,
+        array $googleAccount,
+        ?array $location,
+    ): SocialAccount {
+        $providerId = (string) ($location['name'] ?? $googleAccount['name']);
+        $title = $location['title'] ?? $googleAccount['accountName'] ?? 'Google Business Profile';
+        $address = data_get($location, 'storefrontAddress.addressLines.0');
+
+        return SocialAccount::upsertConnection(
+            [
+                'workspace_id' => $workspace->id,
+                'platform' => 'google_business',
+                'provider_account_id' => $providerId,
+            ],
+            [
+                'connected_by' => $user->id,
+                'name' => $title,
+                'username' => $address,
+                'avatar_url' => null,
+                'profile_url' => data_get($location, 'metadata.mapsUri') ?? data_get($location, 'websiteUri'),
+                'access_token' => $accessToken,
+                'refresh_token' => $tokens['refresh_token'] ?? null,
+                'token_meta' => [
+                    'scope' => $tokens['scope'] ?? null,
+                    'google_account' => $googleAccount['name'] ?? null,
+                    'location_name' => $location['name'] ?? null,
+                ],
+                'token_expires_at' => isset($tokens['expires_in']) ? now()->addSeconds((int) $tokens['expires_in']) : null,
+                'status' => 'active',
+                'status_message' => null,
+                'settings' => [
+                    'google_account' => $googleAccount,
+                    'location' => $location,
+                ],
+                'last_synced_at' => now(),
+            ],
+        );
+    }
+
     /** @return array<int, SocialAccount>|SocialAccount */
     protected function connectLinkedIn(
         string $platform,
@@ -710,6 +908,83 @@ class OAuthController extends Controller
         );
     }
 
+    protected function connectThreads(Workspace $workspace, User $user, string $code, array $credentials): SocialAccount
+    {
+        $tokenResponse = Http::asForm()->post('https://graph.threads.net/oauth/access_token', [
+            'client_id' => $credentials['client_id'],
+            'client_secret' => $credentials['client_secret'],
+            'grant_type' => 'authorization_code',
+            'redirect_uri' => $credentials['redirect'],
+            'code' => $code,
+        ]);
+
+        if (! $tokenResponse->successful()) {
+            throw new \RuntimeException(
+                $tokenResponse->json('error_message')
+                ?? $tokenResponse->json('error.message')
+                ?? 'Threads token exchange failed.'
+            );
+        }
+
+        $tokens = $tokenResponse->json();
+        $accessToken = $tokens['access_token'] ?? null;
+        if (! $accessToken) {
+            throw new \RuntimeException('Threads did not return an access token.');
+        }
+
+        $longLivedResponse = Http::get('https://graph.threads.net/access_token', [
+            'grant_type' => 'th_exchange_token',
+            'client_secret' => $credentials['client_secret'],
+            'access_token' => $accessToken,
+        ]);
+        if ($longLivedResponse->successful() && $longLivedResponse->json('access_token')) {
+            $tokens = array_merge($tokens, $longLivedResponse->json());
+            $accessToken = $tokens['access_token'];
+        }
+
+        $profileResponse = Http::withToken($accessToken)
+            ->get('https://graph.threads.net/v1.0/me', [
+                'fields' => 'id,username,name,threads_profile_picture_url',
+            ]);
+
+        if (! $profileResponse->successful()) {
+            throw new \RuntimeException($profileResponse->json('error.message') ?? 'Could not load the Threads profile.');
+        }
+
+        $profile = $profileResponse->json();
+        $accountId = (string) ($profile['id'] ?? '');
+        $username = (string) ($profile['username'] ?? '');
+        if ($accountId === '') {
+            throw new \RuntimeException('Threads did not return a profile ID.');
+        }
+
+        return SocialAccount::upsertConnection(
+            [
+                'workspace_id' => $workspace->id,
+                'platform' => 'threads',
+                'provider_account_id' => $accountId,
+            ],
+            [
+                'connected_by' => $user->id,
+                'name' => $profile['name'] ?? ($username ? '@'.$username : 'Threads Profile'),
+                'username' => $username ? '@'.ltrim($username, '@') : null,
+                'avatar_url' => $profile['threads_profile_picture_url'] ?? null,
+                'profile_url' => $username ? "https://www.threads.net/@{$username}" : null,
+                'access_token' => $accessToken,
+                'refresh_token' => null,
+                'token_meta' => [
+                    'scopes' => $credentials['scopes'] ?? [],
+                    'token_type' => $tokens['token_type'] ?? 'bearer',
+                ],
+                'token_expires_at' => isset($tokens['expires_in']) ? now()->addSeconds((int) $tokens['expires_in']) : null,
+                'status' => 'active',
+                'status_message' => null,
+                'settings' => [],
+                'last_synced_at' => now(),
+            ],
+        );
+    }
+
     protected function connectMastodon(Workspace $workspace, User $user, string $code, array $credentials): SocialAccount
     {
         $instance = rtrim((string) ($credentials['instance'] ?? ''), '/');
@@ -878,6 +1153,83 @@ class OAuthController extends Controller
         }
 
         return $account->fresh();
+    }
+
+    /**
+     * @return array<int, SocialAccount>
+     */
+    protected function connectSnapchat(Workspace $workspace, User $user, string $code, array $credentials): array
+    {
+        $tokenResponse = Http::withBasicAuth($credentials['client_id'], $credentials['client_secret'])
+            ->asForm()
+            ->timeout(20)
+            ->post('https://accounts.snapchat.com/login/oauth2/access_token', [
+                'grant_type' => 'authorization_code',
+                'code' => $code,
+                'redirect_uri' => $credentials['redirect'],
+            ]);
+
+        if (! $tokenResponse->successful()) {
+            throw new \RuntimeException(
+                $tokenResponse->json('error_description')
+                ?? $tokenResponse->json('error')
+                ?? 'Snapchat token exchange failed.'
+            );
+        }
+
+        $tokens = $tokenResponse->json();
+        $accessToken = $tokens['access_token'] ?? null;
+        if (! $accessToken) {
+            throw new \RuntimeException('Snapchat did not return an access token.');
+        }
+
+        $organizationsResponse = Http::withToken($accessToken)
+            ->timeout(20)
+            ->get('https://adsapi.snapchat.com/v1/me/organizations');
+
+        $organizations = $organizationsResponse->successful()
+            ? data_get($organizationsResponse->json(), 'organizations', [])
+            : [];
+
+        if (empty($organizations)) {
+            $organizations = [[
+                'id' => sha1($accessToken),
+                'name' => 'Snapchat Account',
+                'organization_id' => sha1($accessToken),
+            ]];
+        }
+
+        return collect($organizations)->map(function (array $organization) use ($workspace, $user, $tokens, $accessToken) {
+            $organizationId = (string) ($organization['organization_id'] ?? $organization['id'] ?? '');
+            $name = $organization['name'] ?? 'Snapchat Account';
+
+            return SocialAccount::upsertConnection(
+                [
+                    'workspace_id' => $workspace->id,
+                    'platform' => 'snapchat',
+                    'provider_account_id' => $organizationId,
+                ],
+                [
+                    'connected_by' => $user->id,
+                    'name' => $name,
+                    'username' => null,
+                    'avatar_url' => null,
+                    'profile_url' => null,
+                    'access_token' => $accessToken,
+                    'refresh_token' => $tokens['refresh_token'] ?? null,
+                    'token_meta' => [
+                        'scope' => $tokens['scope'] ?? null,
+                        'token_type' => $tokens['token_type'] ?? 'Bearer',
+                        'organization' => $organization,
+                    ],
+                    'token_expires_at' => isset($tokens['expires_in']) ? now()->addSeconds((int) $tokens['expires_in']) : null,
+                    'status' => 'active',
+                    'status_message' => null,
+                    'settings' => ['organization' => $organization],
+                    'last_synced_at' => now(),
+                ],
+            );
+        })->values()->all();
     }
 
     protected function oauthGroup(string $platform): string

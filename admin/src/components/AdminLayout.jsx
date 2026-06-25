@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Activity, BarChart3, Bell, Bot, Building2, ChevronDown, CircleUserRound, ClipboardList,
   FilePlus2, History, Image, LayoutDashboard, ListChecks, LogOut, Mail, Menu, Moon,
-  Package, Plus, ReceiptText, Settings, ShieldAlert, Send, Sun, UserCog, UserRound,
+  Package, Plus, ReceiptText, Rss, Settings, ShieldAlert, Send, Sun, UserCog, UserRound,
   Users, WalletCards, Workflow, X,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -24,6 +24,7 @@ const NAV = [
     ],
   },
   { to: '/posts', label: 'Posts', icon: Send },
+  { to: '/feed', label: 'Feed', icon: Rss },
   { to: '/planners', label: 'Planners', icon: ClipboardList },
   { to: '/media', label: 'Media Library', icon: Image },
   { to: '/automations', label: 'Automations', icon: Workflow },
@@ -61,14 +62,13 @@ export default function AdminLayout() {
   const { theme, toggle } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
-  const initialNavGroup = NAV.find((item) => item.children?.some((child) => isRouteActive(location.pathname, child)))?.label
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarHidden, setSidebarHidden] = useState(() => localStorage.getItem('postflow_admin_sidebar_hidden') === 'true')
   const [branding, setBranding] = useState(null)
-  const [navOpen, setNavOpen] = useState(() => (initialNavGroup ? { [initialNavGroup]: true } : { Users: true }))
+  const [navOpen, setNavOpen] = useState({})
   const userMenuRef = useRef(null)
   const quickMenuRef = useRef(null)
 

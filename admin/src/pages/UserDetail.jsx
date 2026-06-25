@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, LogIn, Mail, ShieldCheck, UserRound } from 'lucide-react'
 import api from '../lib/api'
+import { impersonationUrl } from '../lib/impersonation'
 import { Badge, Button, Card, PageLoader } from '../components/ui'
 
 export default function UserDetail() {
@@ -18,9 +19,9 @@ export default function UserDetail() {
     setBusy(true)
     try {
       const { data } = await api.post(`/admin/users/${id}/impersonate`)
-      const frontend = window.location.origin.replace('5174', '5173')
-      if (target) target.location.href = `${frontend}/impersonate?token=${encodeURIComponent(data.token)}`
-      else window.location.assign(`${frontend}/impersonate?token=${encodeURIComponent(data.token)}`)
+      const url = impersonationUrl(data.token)
+      if (target) target.location.href = url
+      else window.location.assign(url)
     } catch {
       target?.close()
     } finally {

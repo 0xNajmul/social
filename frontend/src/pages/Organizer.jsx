@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   CalendarClock,
@@ -12,7 +12,6 @@ import {
   Info,
   FileText,
   ListFilter,
-  Plus,
   Search,
   Save,
   Table2,
@@ -28,6 +27,10 @@ import { Badge, Button, Card, EmptyState, Modal, PageLoader, ConfirmDialog } fro
 import { useAuth } from '../context/AuthContext'
 import Calendar from './Calendar'
 import DateTimeField from '../components/DateTimeField'
+import { DATA_CHANGED_EVENT, broadcastDataChanged } from '../lib/appEvents'
+import { HOLIDAY_COUNTRIES, HOLIDAY_SOURCE_GROUPS, normalizeHolidaySettings } from '../lib/holidays'
+import { fromLocalDateTimeInput, toLocalDateTimeInput } from '../lib/datetime'
+import useInfiniteList from '../hooks/useInfiniteList'
 
 const GROUPS = {
   pending: {
@@ -108,9 +111,41 @@ export default function Organizer() {
   const [selectedAccountIds, setSelectedAccountIds] = useState([])
   const [selectedCategories, setSelectedCategories] = useState([])
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' })
+  const [holidaySettings, setHolidaySettings] = useState(() => readHolidaySettings())
   const [error, setError] = useState('')
   const [reviewBusy, setReviewBusy] = useState('')
   const [dragBusy, setDragBusy] = useState('')
+
+  const loadOrganizerData = useCallback(() => {
+    let active = true
+    Promise.allSettled([
+      api.get('/posts', { params: { per_page: 100 } }),
+      api.get('/planner-notes', { params: { limit: 100 } }),
+      api.get('/social/accounts'),
+    ]).then(([postsResult, notesResult, accountsResult]) => {
+      if (!active) return
+
+      if (postsResult.status === 'fulfilled') {
+        setPosts(postsResult.value.data.data || [])
+      } else {
+        setPosts([])
+        setError('Could not load your posting plan.')
+      }
+
+      if (notesResult.status === 'fulfilled') {
+        setPlannerNotes(notesResult.value.data.data || [])
+      } else {
+        setPlannerNotes([])
+      }
+
+      if (accountsResult.status === 'fulfilled') {
+        setAccounts(accountsResult.value.data.data || [])
+      } else {
+        setAccounts([])
+      }
+    })
+    return () => { active = false }
+  }, [])
 
   const syncOrganizerUrl = (nextView, nextFilter) => {
     const params = new URLSearchParams(searchParams)
@@ -156,35 +191,18 @@ export default function Organizer() {
   }
 
   useEffect(() => {
-    let active = true
-    Promise.allSettled([
-      api.get('/posts', { params: { per_page: 100 } }),
-      api.get('/planner-notes', { params: { limit: 100 } }),
-      api.get('/social/accounts'),
-    ]).then(([postsResult, notesResult, accountsResult]) => {
-      if (!active) return
-
-      if (postsResult.status === 'fulfilled') {
-        setPosts(postsResult.value.data.data || [])
-      } else {
-        setPosts([])
-        setError('Could not load your posting plan.')
-      }
-
-      if (notesResult.status === 'fulfilled') {
-        setPlannerNotes(notesResult.value.data.data || [])
-      } else {
-        setPlannerNotes([])
-      }
-
-      if (accountsResult.status === 'fulfilled') {
-        setAccounts(accountsResult.value.data.data || [])
-      } else {
-        setAccounts([])
-      }
-    })
-    return () => { active = false }
-  }, [])
+    const cancelInitial = loadOrganizerData()
+    const refresh = () => loadOrganizerData()
+    const interval = window.setInterval(refresh, 30000)
+    window.addEventListener(DATA_CHANGED_EVENT, refresh)
+    window.addEventListener('postflow:refresh-organizer', refresh)
+    return () => {
+      cancelInitial?.()
+      window.clearInterval(interval)
+      window.removeEventListener(DATA_CHANGED_EVENT, refresh)
+      window.removeEventListener('postflow:refresh-organizer', refresh)
+    }
+  }, [loadOrganizerData])
 
   useEffect(() => {
     const nextView = validParam(searchParams.get('view'), VALID_VIEWS, null)
@@ -247,6 +265,21 @@ export default function Organizer() {
     localStorage.setItem('organizer_sort_order', sortOrder)
   }, [sortOrder])
 
+  useEffect(() => {
+    if (!activeWorkspace || localStorage.getItem('organizer_holiday_settings')) return undefined
+    const timer = window.setTimeout(() => {
+      setHolidaySettings(normalizeHolidaySettings({
+        workspaceCountry: activeWorkspace.settings?.workspace_country,
+        audienceCountries: activeWorkspace.settings?.audience_countries,
+      }))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [activeWorkspace])
+
+  useEffect(() => {
+    localStorage.setItem('organizer_holiday_settings', JSON.stringify(holidaySettings))
+  }, [holidaySettings])
+
   const organizerItems = useMemo(() => {
     const socialItems = (posts || []).map((post) => ({ ...post, kind: 'post' }))
     const planItems = plannerNotes.map(noteToOrganizerItem)
@@ -279,6 +312,7 @@ export default function Organizer() {
       .filter((item) => !query || `${item.title || ''} ${item.content || ''} ${item.author?.name || ''} ${item.status_label || ''}`.toLowerCase().includes(query))
       .sort((a, b) => compareItems(a, b, sortOrder))
   }, [approvalFilter, dateFilter, organizerItems, search, selectedAccountIds, selectedCategories, selectedGroups, sortOrder])
+  const { hasMore, items: pagedItems, sentinelRef } = useInfiniteList(filteredItems)
 
   const reviewPost = async (post, decision) => {
     if (post.kind === 'planner') return
@@ -289,6 +323,7 @@ export default function Organizer() {
       await api.post(`/posts/${post.id}/review`, { decision })
       const { data } = await api.get('/posts', { params: { per_page: 100 } })
       setPosts(data.data || [])
+      broadcastDataChanged({ resource: 'posts', action: 'reviewed', item: post })
     } catch (reviewError) {
       setError(reviewError.response?.data?.message || 'Could not review this post.')
     } finally {
@@ -325,26 +360,25 @@ export default function Organizer() {
       if (item.kind === 'planner') {
         const { data } = await api.put(`/planner-notes/${item.id}`, {
           title: item.note?.title || item.title || 'Untitled plan',
-          content_html: item.note?.content_html || `<p>${escapeHtml(item.content || '')}</p>`,
-          ai_prompt: item.note?.meta?.ai_prompt || '',
-          scheduled_at: item.scheduled_at || null,
-          categories: item.note?.meta?.categories || [],
-          status: groupKey,
-        })
+              content_html: item.note?.content_html || `<p>${escapeHtml(item.content || '')}</p>`,
+              ai_prompt: item.note?.meta?.ai_prompt || '',
+              scheduled_at: item.scheduled_at || null,
+              categories: item.note?.meta?.categories || [],
+              tags: item.note?.meta?.tags || [],
+              status: groupKey,
+            })
         upsertPlanner(data.data)
+        broadcastDataChanged({ resource: 'planner-notes', action: 'moved', item: data.data })
       } else {
         const { data } = await api.put(`/posts/${item.id}/status`, { status: GROUP_STATUS[groupKey], scheduled_at: item.scheduled_at || null })
         upsertPost(data.data)
+        broadcastDataChanged({ resource: 'posts', action: 'moved', item: data.data })
       }
     } catch (moveError) {
       setError(moveError.response?.data?.message || 'Could not move this item.')
     } finally {
       setDragBusy('')
     }
-  }
-
-  const openComposerModal = () => {
-    window.dispatchEvent(new CustomEvent('postflow:quick-action', { detail: { type: 'composer' } }))
   }
 
   const canApprove = ['owner', 'admin', 'manager'].includes(activeWorkspace?.role)
@@ -360,6 +394,20 @@ export default function Organizer() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Track posts and planner notes in table, Kanban, timeline, and calendar views.</p>
         </div>
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-end">
+          <div className="relative w-full lg:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search organizer..."
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Clear organizer search">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           <div className="flex overflow-x-auto rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
             {visibleViewOptions.map((item) => (
               <button
@@ -375,31 +423,15 @@ export default function Organizer() {
                 <span className="hidden sm:inline">{item.label}</span>
               </button>
             ))}
-          </div>
-          <div className="relative w-full lg:w-72">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search organizer..."
-              className="h-10 w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-            />
-            {search && (
-              <button type="button" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Clear organizer search">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button type="button" onClick={openComposerModal}><Plus className="h-4 w-4" /> New post</Button>
             <button
               type="button"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500/25 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-white xl:flex-none"
               onClick={() => setSettingsOpen(true)}
               aria-label="Filter"
               title="Filter"
             >
-              <ListFilter className="h-5 w-5 shrink-0" />
+              <ListFilter className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">Filter</span>
             </button>
           </div>
         </div>
@@ -418,7 +450,8 @@ export default function Organizer() {
               showPlannerData={showPlannerData}
               showSocialData={showSocialData}
               onOpenItem={setSelectedItem}
-              onItemChanged={upsertPost}
+              onItemChanged={updateItemFromModal}
+              holidaySettings={holidaySettings}
             />
           </div>
         ) : filteredItems.length === 0 ? (
@@ -431,9 +464,10 @@ export default function Organizer() {
           </div>
         ) : (
           <>
-            {view === 'table' && <TableView items={filteredItems} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} />}
-            {view === 'board' && <BoardView items={filteredItems} filter={filter} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} onMoveStage={moveItemStage} dragBusy={dragBusy} />}
-            {view === 'timeline' && <TimelineView items={filteredItems} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} />}
+            {view === 'table' && <TableView items={pagedItems} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} />}
+            {view === 'board' && <BoardView items={pagedItems} filter={filter} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} onMoveStage={moveItemStage} dragBusy={dragBusy} />}
+            {view === 'timeline' && <TimelineView items={pagedItems} canApprove={canApprove} onOpen={setSelectedItem} onReview={reviewPost} reviewBusy={reviewBusy} />}
+            {hasMore && <div ref={sentinelRef} className="px-4 py-5 text-center text-xs font-semibold text-slate-400">Loading more organizer items...</div>}
           </>
         )}
       </Card>
@@ -464,6 +498,8 @@ export default function Organizer() {
         onClearCategories={() => setSelectedCategories([])}
         dateFilter={dateFilter}
         onDateFilterChange={setDateFilter}
+        holidaySettings={holidaySettings}
+        onHolidaySettingsChange={setHolidaySettings}
       />
 
       <OrganizerItemModal
@@ -684,7 +720,20 @@ function OrganizerSettingsDrawer({
   onClearCategories,
   dateFilter = { from: '', to: '' },
   onDateFilterChange,
+  holidaySettings,
+  onHolidaySettingsChange,
 }) {
+  const [activeTab, setActiveTab] = useState('display')
+  const [openSections, setOpenSections] = useState(() => ({
+    views: true,
+    sources: true,
+    holidays: true,
+    status: true,
+    list: true,
+    accounts: true,
+    categories: true,
+  }))
+
   useEffect(() => {
     if (!open) return undefined
     const closeOnEscape = (event) => {
@@ -694,8 +743,38 @@ function OrganizerSettingsDrawer({
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [onClose, open])
 
+  const updateHolidaySettings = (patch) => onHolidaySettingsChange(normalizeHolidaySettings({ ...holidaySettings, ...patch }))
+  const updateHolidayGroup = (groupKey) => {
+    const groups = holidaySettings.groups || []
+    const nextGroups = groups.includes(groupKey) ? groups.filter((key) => key !== groupKey) : [...groups, groupKey]
+    updateHolidaySettings({ groups: nextGroups })
+  }
+  const updateAudienceCountry = (countryCode) => {
+    const countries = holidaySettings.audienceCountries || []
+    const nextCountries = countries.includes(countryCode) ? countries.filter((code) => code !== countryCode) : [...countries, countryCode]
+    updateHolidaySettings({ audienceCountries: nextCountries })
+  }
+  const addCustomHoliday = () => {
+    const date = new Date().toISOString().slice(0, 10)
+    updateHolidaySettings({
+      customEvents: [
+        ...(holidaySettings.customEvents || []),
+        { name: 'Custom campaign day', date, notes: '' },
+      ],
+    })
+  }
+  const updateCustomHoliday = (index, patch) => {
+    const nextEvents = [...(holidaySettings.customEvents || [])]
+    nextEvents[index] = { ...nextEvents[index], ...patch }
+    updateHolidaySettings({ customEvents: nextEvents })
+  }
+  const removeCustomHoliday = (index) => {
+    updateHolidaySettings({ customEvents: (holidaySettings.customEvents || []).filter((_, itemIndex) => itemIndex !== index) })
+  }
+  const toggleSection = (key) => setOpenSections((current) => ({ ...current, [key]: !current[key] }))
+
   return (
-    <div className={clsx('fixed inset-0 z-50 transition', open ? 'pointer-events-auto' : 'pointer-events-none')} aria-hidden={!open}>
+    <div className={clsx('fixed inset-0 z-[220] transition', open ? 'pointer-events-auto' : 'pointer-events-none')} aria-hidden={!open}>
       <button
         type="button"
         className={clsx('absolute inset-0 bg-slate-950/40 backdrop-blur-[2px] transition-opacity', open ? 'opacity-100' : 'opacity-0')}
@@ -708,17 +787,39 @@ function OrganizerSettingsDrawer({
       )}>
         <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Organizer settings</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Choose visible views and which data appears on this page.</p>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Organizer filters</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Filter views, data sources, status, dates, accounts, and calendar holidays.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto p-5">
-          <section>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Visible view tabs</h3>
+        <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+          <div className="grid grid-cols-3 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+            {[
+              ['display', 'Display'],
+              ['filters', 'Filters'],
+              ['calendar', 'Calendar'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key)}
+                className={clsx(
+                  'rounded-lg px-3 py-2 text-sm font-semibold transition',
+                  activeTab === key ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {activeTab === 'display' && (
+          <OrganizerFilterAccordion title="Visible view tabs" description="Show or hide the organizer view tabs." icon={Table2} open={openSections.views} onToggle={() => toggleSection('views')}>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Hide or show Table, Kanban, Timeline, and Calendar tabs.</p>
             <div className="mt-3 grid gap-2">
               {VIEWS.map(({ key, label, icon: Icon }) => (
@@ -735,16 +836,113 @@ function OrganizerSettingsDrawer({
                 </label>
               ))}
             </div>
-          </section>
+          </OrganizerFilterAccordion>
+          )}
 
-          <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Data sources</h3>
+          {activeTab === 'display' && (
+          <OrganizerFilterAccordion title="Data sources" description="Choose which item types appear." icon={FileText} open={openSections.sources} onToggle={() => toggleSection('sources')}>
+            <div className="space-y-3">
             <SwitchRow label="Show planner data" description="Include saved plans and notes in every organizer view." checked={showPlannerData} onChange={onTogglePlannerData} />
             <SwitchRow label="Show social posting data" description="Include posts from composer, queues, and publishing workflows." checked={showSocialData} onChange={onToggleSocialData} />
-          </section>
+            </div>
+          </OrganizerFilterAccordion>
+          )}
 
-          <section>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Status filter</h3>
+          {activeTab === 'calendar' && (
+          <OrganizerFilterAccordion title="Calendar holidays" description="Country, audience, marketing, religious, and custom calendars." icon={CalendarDays} open={openSections.holidays} onToggle={() => toggleSection('holidays')}>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Show country, audience, marketing, global, religious, and custom workspace calendars without flooding the calendar.</p>
+            <div className="mt-3 space-y-3 rounded-2xl border border-slate-200 p-3 dark:border-slate-800">
+              <SwitchRow
+                label="Show holidays"
+                description="Display selected holiday calendars in the visible calendar date range."
+                checked={Boolean(holidaySettings.enabled)}
+                onChange={() => updateHolidaySettings({ enabled: !holidaySettings.enabled })}
+              />
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Workspace country</span>
+                <select
+                  value={holidaySettings.workspaceCountry}
+                  onChange={(event) => updateHolidaySettings({ workspaceCountry: event.target.value })}
+                  className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  {HOLIDAY_COUNTRIES.map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}
+                </select>
+              </label>
+              <div>
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Audience countries</span>
+                <div className="grid max-h-48 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                  {HOLIDAY_COUNTRIES.filter((country) => country.code !== holidaySettings.workspaceCountry).map((country) => {
+                    const checked = (holidaySettings.audienceCountries || []).includes(country.code)
+                    return (
+                      <label key={country.code} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
+                        <span className="truncate">{country.name}</span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => updateAudienceCountry(country.code)}
+                          className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                        />
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+              <div>
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Holiday calendars</span>
+                <div className="grid gap-2">
+                  {HOLIDAY_SOURCE_GROUPS.map((group) => {
+                    const checked = (holidaySettings.groups || []).includes(group.key)
+                    return (
+                      <label key={group.key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
+                        <span>
+                          <span className="block">{group.label}</span>
+                          {group.key === 'islamic' && <span className="mt-0.5 block text-[11px] font-normal text-slate-400">Date may vary by country/moon sighting.</span>}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => updateHolidayGroup(group.key)}
+                          className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                        />
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400">Custom workspace events</span>
+                  <Button type="button" size="sm" variant="secondary" onClick={addCustomHoliday}>Add</Button>
+                </div>
+                <div className="space-y-2">
+                  {(holidaySettings.customEvents || []).map((event, index) => (
+                    <div key={`${event.date}-${index}`} className="grid gap-2 rounded-xl border border-slate-200 p-2 dark:border-slate-800">
+                      <input
+                        value={event.name || ''}
+                        onChange={(inputEvent) => updateCustomHoliday(index, { name: inputEvent.target.value })}
+                        placeholder="Campaign or custom holiday"
+                        className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      />
+                      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                        <input
+                          type="date"
+                          value={event.date || ''}
+                          onChange={(inputEvent) => updateCustomHoliday(index, { date: inputEvent.target.value })}
+                          className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        />
+                        <Button type="button" size="sm" variant="ghost" className="text-rose-500" onClick={() => removeCustomHoliday(index)}>Remove</Button>
+                      </div>
+                    </div>
+                  ))}
+                  {(holidaySettings.customEvents || []).length === 0 && <p className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-sm text-slate-400 dark:border-slate-800">No custom events yet.</p>}
+                </div>
+              </div>
+            </div>
+          </OrganizerFilterAccordion>
+          )}
+
+          {activeTab === 'filters' && (
+          <OrganizerFilterAccordion title="Status filter" description="Choose one or multiple status groups." icon={ListFilter} open={openSections.status} onToggle={() => toggleSection('status')}>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose one or multiple status groups to show in every view.</p>
             <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
               {DRAWER_FILTERS.map(({ key, label, icon: Icon }) => (
@@ -769,10 +967,11 @@ function OrganizerSettingsDrawer({
                 </label>
               ))}
             </div>
-          </section>
+          </OrganizerFilterAccordion>
+          )}
 
-          <section>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">List filters</h3>
+          {activeTab === 'filters' && (
+          <OrganizerFilterAccordion title="List filters" description="Approval, date range, and sort order." icon={ListFilter} open={openSections.list} onToggle={() => toggleSection('list')}>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Refine approval state and ordering for the organizer views.</p>
             <div className="mt-3 grid gap-3">
               <label className="block">
@@ -802,10 +1001,11 @@ function OrganizerSettingsDrawer({
                 </select>
               </label>
             </div>
-          </section>
+          </OrganizerFilterAccordion>
+          )}
 
-          <section>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Social profiles</h3>
+          {activeTab === 'filters' && (
+          <OrganizerFilterAccordion title="Social profiles" description="Filter by connected profiles." icon={UserRound} open={openSections.accounts} onToggle={() => toggleSection('accounts')}>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Select one or more connected profiles to show in Organizer.</p>
             <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
               {accounts.map((account) => (
@@ -825,10 +1025,11 @@ function OrganizerSettingsDrawer({
               {accounts.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-sm text-slate-400 dark:border-slate-800">No connected accounts.</p>}
             </div>
             {selectedAccountIds.length > 0 && <Button type="button" size="sm" variant="ghost" className="mt-3" onClick={() => selectedAccountIds.forEach((id) => onToggleAccount(id))}>Clear profile filters</Button>}
-          </section>
+          </OrganizerFilterAccordion>
+          )}
 
-          <section>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Categories</h3>
+          {activeTab === 'filters' && (
+          <OrganizerFilterAccordion title="Categories" description="Filter posts and planner notes by category." icon={ListFilter} open={openSections.categories} onToggle={() => toggleSection('categories')}>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Filter posts and planner notes by saved categories.</p>
             <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1">
               {availableCategories.map((category) => (
@@ -845,10 +1046,36 @@ function OrganizerSettingsDrawer({
               {availableCategories.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-sm text-slate-400 dark:border-slate-800">No categories yet.</p>}
             </div>
             {selectedCategories.length > 0 && <Button type="button" size="sm" variant="ghost" className="mt-3" onClick={onClearCategories}>Clear category filters</Button>}
-          </section>
+          </OrganizerFilterAccordion>
+          )}
         </div>
       </aside>
     </div>
+  )
+}
+
+function OrganizerFilterAccordion({ title, description, icon: Icon, open, onToggle, children }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/30">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/50"
+        aria-expanded={open}
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+            <Icon className="h-4 w-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold text-slate-900 dark:text-white">{title}</span>
+            <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{description}</span>
+          </span>
+        </span>
+        <X className={clsx('h-4 w-4 shrink-0 text-slate-400 transition', open ? 'rotate-45' : 'rotate-0')} />
+      </button>
+      {open && <div className="border-t border-slate-100 p-4 dark:border-slate-800">{children}</div>}
+    </section>
   )
 }
 
@@ -893,17 +1120,19 @@ function OrganizerItemModal({ item, onClose, onChanged, onDeleted, canApprove, o
           title: item.note?.title || item.title || 'Untitled plan',
           content_html: item.note?.content_html || `<p>${escapeHtml(item.content || '')}</p>`,
           ai_prompt: item.note?.meta?.ai_prompt || '',
-          scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
+          scheduled_at: fromLocalDateTimeInput(form.scheduled_at),
           categories: splitList(form.categories),
           status: form.status,
         })
         onChanged(noteToOrganizerItem(data.data))
+        broadcastDataChanged({ resource: 'planner-notes', action: 'updated', item: data.data })
       } else {
         const { data } = await api.put(`/posts/${item.id}/status`, {
           status: form.status,
-          scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
+          scheduled_at: fromLocalDateTimeInput(form.scheduled_at),
         })
         onChanged({ ...data.data, kind: 'post' })
+        broadcastDataChanged({ resource: 'posts', action: 'updated', item: data.data })
       }
       setEditing(false)
     } catch (error) {
@@ -919,6 +1148,7 @@ function OrganizerItemModal({ item, onClose, onChanged, onDeleted, canApprove, o
       if (isPlanner) await api.delete(`/planner-notes/${item.id}`)
       else await api.delete(`/posts/${item.id}`)
       onDeleted(item)
+      broadcastDataChanged({ resource: isPlanner ? 'planner-notes' : 'posts', action: 'deleted', item })
     } catch (error) {
       window.alert(error.response?.data?.message || 'Could not delete this item.')
     } finally {
@@ -1022,7 +1252,7 @@ function itemForm(item) {
 
   return {
     status: item.kind === 'planner' ? groupFor(item) : item.status || 'draft',
-    scheduled_at: toDateTimeInput(item.scheduled_at || ''),
+    scheduled_at: toLocalDateTimeInput(item.scheduled_at || ''),
     categories: (item.note?.meta?.categories || []).join(', '),
   }
 }
@@ -1169,14 +1399,6 @@ function planDate(post, short = false) {
     : { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
-function toDateTimeInput(value) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 16)
-}
-
 function contentTitle(content = '') {
   const clean = String(content ?? '').trim()
   return clean ? `${clean.slice(0, 54)}${clean.length > 54 ? '...' : ''}` : 'Untitled post'
@@ -1193,5 +1415,14 @@ function readVisibleViews() {
     return visible.length ? visible : DEFAULT_VISIBLE_VIEWS
   } catch {
     return DEFAULT_VISIBLE_VIEWS
+  }
+}
+
+function readHolidaySettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('organizer_holiday_settings') || '{}')
+    return normalizeHolidaySettings(parsed)
+  } catch {
+    return normalizeHolidaySettings()
   }
 }

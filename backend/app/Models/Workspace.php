@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class Workspace extends Model
@@ -18,7 +19,7 @@ class Workspace extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'owner_id', 'name', 'description', 'slug', 'logo_path', 'timezone',
+        'owner_id', 'public_id', 'name', 'description', 'slug', 'logo_path', 'timezone',
         'brand_color', 'settings', 'trial_ends_at',
     ];
 
@@ -33,8 +34,24 @@ class Workspace extends Model
     protected static function booted(): void
     {
         static::creating(function (Workspace $workspace) {
+            if (Schema::hasColumn('workspaces', 'public_id')) {
+                $workspace->public_id ??= static::uniquePublicId();
+            }
             $workspace->slug ??= static::uniqueSlug($workspace->name);
         });
+    }
+
+    public static function uniquePublicId(): string
+    {
+        if (! Schema::hasColumn('workspaces', 'public_id')) {
+            return 'ws_'.Str::lower(Str::random(12));
+        }
+
+        do {
+            $publicId = 'ws_'.Str::lower(Str::random(12));
+        } while (static::withTrashed()->where('public_id', $publicId)->exists());
+
+        return $publicId;
     }
 
     public static function uniqueSlug(string $name): string
@@ -109,6 +126,12 @@ class Workspace extends Model
     public function automations(): HasMany
     {
         return $this->hasMany(Automation::class);
+    }
+
+    /** @return HasMany<RssFeed, $this> */
+    public function rssFeeds(): HasMany
+    {
+        return $this->hasMany(RssFeed::class);
     }
 
     /** @return HasMany<AiGeneration, $this> */

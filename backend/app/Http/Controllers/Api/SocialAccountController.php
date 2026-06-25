@@ -29,7 +29,10 @@ class SocialAccountController extends Controller
 
     public function index(): JsonResponse
     {
-        $accounts = workspace()->socialAccounts()->latest()->get();
+        $accounts = workspace()->socialAccounts()
+            ->with('connector:id,name,email,avatar_path')
+            ->latest()
+            ->get();
 
         return response()->json(['data' => SocialAccountResource::collection($accounts)]);
     }
@@ -135,6 +138,16 @@ class SocialAccountController extends Controller
             }
         }
 
+        if ($platform === 'twitter') {
+            $twitterConfigured = ! empty($credentials['client_id']) || ! empty($credentials['client_secret']);
+            if ($twitterConfigured && (empty($credentials['client_id']) || empty($credentials['redirect']))) {
+                return response()->json([
+                    'message' => 'X OAuth is not configured.',
+                    'hint' => 'Set TWITTER_CLIENT_ID, TWITTER_CLIENT_SECRET if required by your app, and TWITTER_REDIRECT_URI in backend/.env.',
+                ], 422);
+            }
+        }
+
         if (str_starts_with($platform, 'linkedin_')
             && (empty($credentials['client_id']) || empty($credentials['client_secret']) || empty($credentials['redirect']))) {
             return response()->json([
@@ -151,17 +164,48 @@ class SocialAccountController extends Controller
             ], 422);
         }
 
+        if ($platform === 'google_business'
+            && ((! empty($credentials['client_id']) || ! empty($credentials['client_secret']))
+                && (empty($credentials['client_id']) || empty($credentials['client_secret']) || empty($credentials['redirect'])))) {
+            return response()->json([
+                'message' => 'Google Business Profile OAuth is not configured.',
+                'hint' => 'Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_BUSINESS_REDIRECT_URI in backend/.env.',
+            ], 422);
+        }
+
+        if ($platform === 'threads'
+            && ((! empty($credentials['client_id']) || ! empty($credentials['client_secret']))
+                && (empty($credentials['client_id']) || empty($credentials['client_secret']) || empty($credentials['redirect'])))) {
+            return response()->json([
+                'message' => 'Threads OAuth is not configured.',
+                'hint' => 'Set THREADS_CLIENT_ID, THREADS_CLIENT_SECRET, and THREADS_REDIRECT_URI in backend/.env.',
+            ], 422);
+        }
+
+        if ($platform === 'snapchat'
+            && ((! empty($credentials['client_id']) || ! empty($credentials['client_secret']))
+                && (empty($credentials['client_id']) || empty($credentials['client_secret']) || empty($credentials['redirect'])))) {
+            return response()->json([
+                'message' => 'Snapchat OAuth is not configured.',
+                'hint' => 'Set SNAPCHAT_CLIENT_ID, SNAPCHAT_CLIENT_SECRET, and SNAPCHAT_REDIRECT_URI in backend/.env.',
+            ], 422);
+        }
+
         if (! empty($credentials['client_id']) && ! empty($credentials['redirect'])) {
-            $state = encrypt([
+            $statePayload = [
                 'workspace_id' => $workspace->id,
                 'platform' => $platform,
                 'user_id' => $request->user()->id,
                 'nonce' => Str::random(16),
-            ]);
+            ];
+            if ($platform === 'twitter') {
+                $statePayload['code_verifier'] = Str::random(64);
+            }
+            $state = encrypt($statePayload);
 
             return response()->json([
                 'mode' => 'oauth',
-                'redirect_url' => $this->authorizeUrl($platform, $credentials, $state),
+                'redirect_url' => $this->authorizeUrl($platform, $credentials, $state, $statePayload),
             ]);
         }
 
@@ -232,7 +276,7 @@ class SocialAccountController extends Controller
         ]);
     }
 
-    protected function authorizeUrl(string $platform, array $credentials, string $state): string
+    protected function authorizeUrl(string $platform, array $credentials, string $state, array $statePayload = []): string
     {
         $group = config("social.platforms.{$platform}.group", $platform);
         $oauthGroup = match ($group) {
@@ -249,6 +293,8 @@ class SocialAccountController extends Controller
             'google' => 'https://accounts.google.com/o/oauth2/v2/auth',
             'pinterest' => 'https://www.pinterest.com/oauth/',
             'reddit' => 'https://www.reddit.com/api/v1/authorize',
+            'threads' => 'https://threads.net/oauth/authorize',
+            'snapchat' => 'https://accounts.snapchat.com/accounts/oauth2/auth',
         ];
 
         $base = $endpoints[$oauthGroup] ?? 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -284,13 +330,22 @@ class SocialAccountController extends Controller
         ];
 
         if ($oauthGroup === 'google') {
-            $params['scope'] = implode(' ', [
-                'https://www.googleapis.com/auth/youtube.upload',
-                'https://www.googleapis.com/auth/youtube.readonly',
-                'https://www.googleapis.com/auth/userinfo.profile',
-            ]);
+            $params['scope'] = implode(' ', $platform === 'google_business'
+                ? ($credentials['scopes'] ?? ['https://www.googleapis.com/auth/business.manage'])
+                : [
+                    'https://www.googleapis.com/auth/youtube.upload',
+                    'https://www.googleapis.com/auth/youtube.readonly',
+                    'https://www.googleapis.com/auth/userinfo.profile',
+                ]);
             $params['access_type'] = 'offline';
             $params['prompt'] = 'consent';
+        }
+
+        if ($oauthGroup === 'twitter') {
+            $verifier = (string) ($statePayload['code_verifier'] ?? '');
+            $params['scope'] = implode(' ', $credentials['scopes'] ?? []);
+            $params['code_challenge'] = $this->codeChallenge($verifier);
+            $params['code_challenge_method'] = 'S256';
         }
 
         if ($oauthGroup === 'facebook') {
@@ -322,7 +377,20 @@ class SocialAccountController extends Controller
             $params['duration'] = 'permanent';
         }
 
+        if ($oauthGroup === 'threads') {
+            $params['scope'] = implode(',', $credentials['scopes'] ?? []);
+        }
+
+        if ($oauthGroup === 'snapchat') {
+            $params['scope'] = implode(' ', $credentials['scopes'] ?? []);
+        }
+
         return $base.'?'.http_build_query($params);
+    }
+
+    protected function codeChallenge(string $verifier): string
+    {
+        return rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
     }
 
     protected function createDemoAccount(int $workspaceId, string $platform, int $userId): SocialAccount
@@ -347,7 +415,7 @@ class SocialAccountController extends Controller
 
     protected function isDirectConnectPlatform(string $platform): bool
     {
-        return in_array($platform, ['telegram', 'discord', 'bluesky'], true);
+        return in_array($platform, ['telegram', 'discord', 'bluesky', 'whatsapp'], true);
     }
 
     /**
@@ -360,6 +428,7 @@ class SocialAccountController extends Controller
             'telegram' => $this->connectTelegram($request, $workspaceId, $userId),
             'discord' => $this->connectDiscord($request, $workspaceId, $userId),
             'bluesky' => $this->connectBluesky($request, $workspaceId, $userId),
+            'whatsapp' => $this->connectWhatsApp($request, $workspaceId, $userId),
             'pinterest' => $this->connectPinterestToken($workspaceId, $userId),
             default => response()->json(['message' => 'Unsupported direct connection platform.'], 422),
         };
@@ -603,6 +672,72 @@ class SocialAccountController extends Controller
 
         return response()->json([
             'mode' => 'bot',
+            'data' => new SocialAccountResource($account),
+        ], 201);
+    }
+
+    protected function connectWhatsApp(Request $request, int $workspaceId, int $userId): JsonResponse
+    {
+        $credentials = config('services.whatsapp', []);
+        $accessToken = (string) ($credentials['access_token'] ?? '');
+
+        if ($accessToken === '') {
+            return response()->json([
+                'message' => 'WhatsApp Business Cloud API is not configured.',
+                'hint' => 'Set WHATSAPP_ACCESS_TOKEN in backend/.env, then enter the WhatsApp phone number ID from Meta Business Manager.',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'phone_number_id' => ['required', 'string', 'max:255'],
+        ]);
+
+        $phoneNumberId = trim($data['phone_number_id']);
+        $version = $credentials['graph_version'] ?? 'v21.0';
+        $response = Http::withToken($accessToken)
+            ->timeout(15)
+            ->get("https://graph.facebook.com/{$version}/{$phoneNumberId}", [
+                'fields' => 'id,display_phone_number,verified_name,quality_rating',
+            ]);
+
+        if (! $response->successful()) {
+            return response()->json([
+                'message' => $response->json('error.message') ?? 'WhatsApp could not verify this phone number ID.',
+                'hint' => 'Check that the access token can manage this WhatsApp Business phone number.',
+            ], 422);
+        }
+
+        $profile = $response->json();
+        $name = $profile['verified_name'] ?? 'WhatsApp Business';
+        $phone = $profile['display_phone_number'] ?? $phoneNumberId;
+
+        $account = SocialAccount::upsertConnection(
+            [
+                'workspace_id' => $workspaceId,
+                'platform' => 'whatsapp',
+                'provider_account_id' => (string) ($profile['id'] ?? $phoneNumberId),
+            ],
+            [
+                'connected_by' => $userId,
+                'name' => $name,
+                'username' => $phone,
+                'access_token' => $accessToken,
+                'token_expires_at' => null,
+                'status' => 'active',
+                'status_message' => null,
+                'settings' => [
+                    'phone_number_id' => (string) ($profile['id'] ?? $phoneNumberId),
+                    'display_phone_number' => $phone,
+                    'quality_rating' => $profile['quality_rating'] ?? null,
+                ],
+                'last_synced_at' => now(),
+            ],
+        );
+
+        $this->activity->log($workspaceId, 'account.connected', $account, "Connected WhatsApp Business: {$name}");
+
+        return response()->json([
+            'mode' => 'credentials',
             'data' => new SocialAccountResource($account),
         ], 201);
     }

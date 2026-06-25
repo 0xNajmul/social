@@ -40,11 +40,89 @@ body {
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
 .dark ::-webkit-scrollbar-thumb { background: #334155; }
 
+main table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+main table thead,
+main table tfoot {
+  background-color: #e2e8f0 !important;
+  color: #475569 !important;
+}
+
+main table thead tr,
+main table tfoot tr {
+  background-color: transparent !important;
+}
+
+main table thead th,
+main table tfoot th,
+main table tfoot td {
+  color: #475569 !important;
+}
+
+main table tbody tr:nth-child(even) {
+  background: rgba(248, 250, 252, 0.82);
+}
+
+main table tbody tr:hover {
+  background: rgba(238, 242, 255, 0.9);
+}
+
+.dark main table thead,
+.dark main table tfoot {
+  background-color: #1e293b !important;
+  color: #cbd5e1 !important;
+}
+
+.dark main table thead th,
+.dark main table tfoot th,
+.dark main table tfoot td {
+  color: #cbd5e1 !important;
+}
+
+.dark main table tbody tr:nth-child(even) {
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.dark main table tbody tr:hover {
+  background: rgba(30, 41, 59, 0.78);
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+
+@keyframes modalBackdropIn {
+  from { opacity: 0; backdrop-filter: blur(0); }
+  to { opacity: 1; backdrop-filter: blur(8px); }
+}
+
+@keyframes modalShellIn {
+  from { opacity: 0; transform: translateY(18px) scale(.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-backdrop {
+  animation: modalBackdropIn .24s ease-out both;
+}
+
+.modal-shell {
+  transform-origin: top center;
+  animation: modalShellIn .28s cubic-bezier(.2,.8,.2,1) both;
+  will-change: transform, opacity, width, height, border-radius;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop,
+  .modal-shell {
+    animation: none !important;
+    transition-duration: .01ms !important;
+  }
+}
 
 /* Public landing page motion and visual texture. */
 .landing {

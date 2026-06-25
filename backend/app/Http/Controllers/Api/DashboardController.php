@@ -30,7 +30,7 @@ class DashboardController extends Controller
             ->with('user:id,name')
             ->latest()
             ->limit(10)
-            ->get(['id', 'user_id', 'action', 'description', 'created_at']);
+            ->get(['id', 'user_id', 'action', 'subject_type', 'subject_id', 'description', 'created_at']);
 
         return response()->json([
             'stats' => [

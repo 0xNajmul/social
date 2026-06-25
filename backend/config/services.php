@@ -116,6 +116,10 @@ return [
         'client_id' => env('TWITTER_CLIENT_ID'),
         'client_secret' => env('TWITTER_CLIENT_SECRET'),
         'redirect' => env('TWITTER_REDIRECT_URI'),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('TWITTER_SCOPES', 'tweet.read,tweet.write,users.read,offline.access')),
+        ))),
     ],
     'linkedin' => [
         'client_id' => env('LINKEDIN_CLIENT_ID'),
@@ -166,6 +170,18 @@ return [
         'pds_url' => rtrim(env('BLUESKY_PDS_URL', 'https://bsky.social'), '/'),
         'app_password' => env('BLUESKY_APP_PASSWORD'),
     ],
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env(
+            'GOOGLE_BUSINESS_REDIRECT_URI',
+            rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/google/callback',
+        ),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('GOOGLE_BUSINESS_SCOPES', 'https://www.googleapis.com/auth/business.manage,https://www.googleapis.com/auth/userinfo.profile')),
+        ))),
+    ],
     'mastodon' => [
         'instance' => rtrim(env('MASTODON_INSTANCE_URL', 'https://mastodon.social'), '/'),
         'client_id' => env('MASTODON_CLIENT_ID'),
@@ -184,6 +200,34 @@ return [
     ],
     'discord' => [
         'bot_token' => env('DISCORD_BOT_TOKEN'),
+    ],
+    'threads' => [
+        'client_id' => env('THREADS_CLIENT_ID'),
+        'client_secret' => env('THREADS_CLIENT_SECRET'),
+        'redirect' => env(
+            'THREADS_REDIRECT_URI',
+            rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/threads/callback',
+        ),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('THREADS_SCOPES', 'threads_basic,threads_content_publish')),
+        ))),
+    ],
+    'whatsapp' => [
+        'access_token' => env('WHATSAPP_ACCESS_TOKEN'),
+        'graph_version' => env('WHATSAPP_GRAPH_VERSION', 'v21.0'),
+    ],
+    'snapchat' => [
+        'client_id' => env('SNAPCHAT_CLIENT_ID'),
+        'client_secret' => env('SNAPCHAT_CLIENT_SECRET'),
+        'redirect' => env(
+            'SNAPCHAT_REDIRECT_URI',
+            rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/snapchat/callback',
+        ),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('SNAPCHAT_SCOPES', 'snapchat-marketing-api')),
+        ))),
     ],
 
 ];

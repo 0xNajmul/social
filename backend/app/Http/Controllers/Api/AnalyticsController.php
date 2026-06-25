@@ -49,6 +49,7 @@ class AnalyticsController extends Controller
                     : 0,
             ],
             'by_platform' => $this->byPlatform($workspace->id, $from, $to, $accountId),
+            'by_account' => $this->byAccount($workspace->id, $from, $to, $accountId),
             'timeseries' => $this->timeseries($workspace->id, $from, $to, $accountId),
             'top_posts' => $this->performancePosts($workspace->id, $from, $to, $accountId, 'top'),
             'latest_posts' => $this->latestPosts($workspace->id, $from, $to, $accountId),
@@ -73,6 +74,37 @@ class AnalyticsController extends Controller
                 'posts' => (int) $r->posts,
                 'engagement' => (int) $r->engagement,
                 'impressions' => (int) $r->impressions,
+            ])->all();
+    }
+
+    protected function byAccount(int $workspaceId, $from, $to, ?int $accountId = null): array
+    {
+        $query = PublishedPost::where('workspace_id', $workspaceId)
+            ->whereBetween('published_at', [$from, $to]);
+        $this->filterPublishedByAccount($query, $accountId);
+
+        return $query
+            ->groupBy('social_account_id', 'platform')
+            ->selectRaw(
+                'social_account_id, platform, COUNT(*) as posts, SUM(likes) as likes, '.
+                'SUM(comments) as comments, SUM(shares) as shares, SUM(views) as views, '.
+                'SUM(clicks) as clicks, SUM(impressions) as impressions'
+            )
+            ->get()
+            ->map(fn ($r) => [
+                'social_account_id' => (int) $r->social_account_id,
+                'platform' => $r->platform,
+                'posts' => (int) $r->posts,
+                'likes' => (int) $r->likes,
+                'comments' => (int) $r->comments,
+                'shares' => (int) $r->shares,
+                'views' => (int) $r->views,
+                'clicks' => (int) $r->clicks,
+                'impressions' => (int) $r->impressions,
+                'engagement' => (int) $r->likes + (int) $r->comments + (int) $r->shares + (int) $r->clicks,
+                'engagement_rate' => $r->impressions > 0
+                    ? round(((int) $r->likes + (int) $r->comments + (int) $r->shares + (int) $r->clicks) / (int) $r->impressions * 100, 2)
+                    : 0,
             ])->all();
     }
 

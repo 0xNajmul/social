@@ -3,13 +3,16 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { Bell, CheckCheck, CircleAlert, CircleCheck, Link2, Loader2, X } from 'lucide-react'
 import api from '../lib/api'
+import { NOTIFICATIONS_CHANGED_EVENT, broadcastNotificationsChanged } from '../lib/appEvents'
 
 export default function NotificationMenu({ open, onOpenChange, onSelect }) {
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [desktopPosition, setDesktopPosition] = useState({ top: 0, right: 16 })
   const menuRef = useRef(null)
-  const panelRef = useRef(null)
+  const desktopPanelRef = useRef(null)
+  const mobilePanelRef = useRef(null)
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -27,9 +30,16 @@ export default function NotificationMenu({ open, onOpenChange, onSelect }) {
   useEffect(() => {
     const initialLoad = window.setTimeout(loadNotifications, 0)
     const interval = window.setInterval(loadNotifications, 60000)
+    const refresh = (event) => {
+      if (typeof event.detail?.unreadCount === 'number') setUnreadCount(event.detail.unreadCount)
+      if (event.detail?.notifications) setNotifications(event.detail.notifications)
+      if (event.detail?.reload) loadNotifications()
+    }
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refresh)
     return () => {
       window.clearTimeout(initialLoad)
       window.clearInterval(interval)
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refresh)
     }
   }, [loadNotifications])
 
@@ -37,7 +47,10 @@ export default function NotificationMenu({ open, onOpenChange, onSelect }) {
     if (!open) return undefined
 
     const closeMenu = (event) => {
-      if (!menuRef.current?.contains(event.target) && !panelRef.current?.contains(event.target)) onOpenChange(false)
+      const inButton = menuRef.current?.contains(event.target)
+      const inDesktopPanel = desktopPanelRef.current?.contains(event.target)
+      const inMobilePanel = mobilePanelRef.current?.contains(event.target)
+      if (!inButton && !inDesktopPanel && !inMobilePanel) onOpenChange(false)
     }
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') onOpenChange(false)
@@ -51,13 +64,37 @@ export default function NotificationMenu({ open, onOpenChange, onSelect }) {
     }
   }, [onOpenChange, open])
 
+  useEffect(() => {
+    if (!open) return undefined
+
+    const updatePosition = () => {
+      const rect = menuRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setDesktopPosition({
+        top: rect.bottom + 8,
+        right: Math.max(16, window.innerWidth - rect.right),
+      })
+    }
+
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [open])
+
   const markRead = async (notification) => {
     if (!notification.read_at) {
       setNotifications((current) => current.map((item) => (
         item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item
       )))
-      setUnreadCount((current) => Math.max(0, current - 1))
+      const nextUnreadCount = Math.max(0, unreadCount - 1)
+      setUnreadCount(nextUnreadCount)
+      broadcastNotificationsChanged({ unreadCount: nextUnreadCount })
       await api.post(`/notifications/${notification.id}/read`).catch(loadNotifications)
+      broadcastNotificationsChanged({ unreadCount: nextUnreadCount, reload: true })
     }
     onOpenChange(false)
     onSelect?.(notification)
@@ -69,7 +106,9 @@ export default function NotificationMenu({ open, onOpenChange, onSelect }) {
       read_at: item.read_at || new Date().toISOString(),
     })))
     setUnreadCount(0)
+    broadcastNotificationsChanged({ unreadCount: 0 })
     await api.post('/notifications/read-all').catch(loadNotifications)
+    broadcastNotificationsChanged({ unreadCount: 0, reload: true })
   }
 
   return (
@@ -95,27 +134,35 @@ export default function NotificationMenu({ open, onOpenChange, onSelect }) {
 
       {open && (
         <>
-          <div className="absolute right-0 mt-2 hidden max-h-[calc(100vh-5rem)] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800 sm:flex" role="menu">
-            <NotificationPanel
-              loading={loading}
-              markAllRead={markAllRead}
-              markRead={markRead}
-              notifications={notifications}
-              onClose={() => onOpenChange(false)}
-              unreadCount={unreadCount}
-            />
-          </div>
           {typeof document !== 'undefined' && createPortal(
-            <div ref={panelRef} className="fixed inset-0 z-[80] flex flex-col overflow-hidden bg-white shadow-xl dark:bg-slate-800 sm:hidden" role="menu">
+            <div
+              ref={desktopPanelRef}
+              className="fixed z-[170] hidden max-h-[calc(100vh-5rem)] w-[min(22rem,calc(100vw_-_2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800 sm:flex"
+              style={{ top: desktopPosition.top, right: desktopPosition.right }}
+              role="menu"
+            >
               <NotificationPanel
                 loading={loading}
                 markAllRead={markAllRead}
                 markRead={markRead}
-                mobile
                 notifications={notifications}
                 onClose={() => onOpenChange(false)}
                 unreadCount={unreadCount}
               />
+            </div>,
+            document.body,
+          )}
+          {typeof document !== 'undefined' && createPortal(
+            <div ref={mobilePanelRef} className="fixed inset-0 z-[170] flex flex-col overflow-hidden bg-white shadow-xl dark:bg-slate-800 sm:hidden" role="menu">
+            <NotificationPanel
+              loading={loading}
+              markAllRead={markAllRead}
+              markRead={markRead}
+              mobile
+              notifications={notifications}
+              onClose={() => onOpenChange(false)}
+              unreadCount={unreadCount}
+            />
             </div>,
             document.body,
           )}

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Edit3, Eye, Filter, LogIn, Plus, Search, ShieldCheck, Trash2, UserRound, X } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
+import { impersonationUrl } from '../lib/impersonation'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Input, Modal, PageLoader } from '../components/ui'
 
@@ -107,9 +108,9 @@ export default function Users() {
     setBusy(true)
     try {
       const { data } = await api.post(`/admin/users/${user.id}/impersonate`)
-      const frontend = window.location.origin.replace('5174', '5173')
-      if (target) target.location.href = `${frontend}/impersonate?token=${encodeURIComponent(data.token)}`
-      else window.location.assign(`${frontend}/impersonate?token=${encodeURIComponent(data.token)}`)
+      const url = impersonationUrl(data.token)
+      if (target) target.location.href = url
+      else window.location.assign(url)
     } catch (error) {
       target?.close()
       setMessage({ type: 'error', text: error.response?.data?.message || 'Could not login as this user.' })

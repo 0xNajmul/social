@@ -53,18 +53,23 @@ class PostScheduler
      */
     public function publishNow(Post $post): void
     {
-        $post->update(['status' => PostStatus::Publishing]);
+        $now = now();
+
+        $post->update([
+            'status' => PostStatus::Publishing,
+            'scheduled_at' => $now,
+        ]);
 
         foreach ($post->variants as $variant) {
-            $variant->update(['status' => PostStatus::Publishing, 'scheduled_at' => now()]);
+            $variant->update(['status' => PostStatus::Publishing, 'scheduled_at' => $now]);
 
             ScheduledPost::updateOrCreate(
                 ['post_variant_id' => $variant->id],
                 [
                     'workspace_id' => $post->workspace_id,
-                    'scheduled_at' => now(),
+                    'scheduled_at' => $now,
                     'status' => 'queued',
-                    'dispatched_at' => now(),
+                    'dispatched_at' => $now,
                 ],
             );
 

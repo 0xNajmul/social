@@ -89,6 +89,7 @@ class TeamController extends Controller
         ]);
 
         $invitation->notify(new WorkspaceInvitationNotification($invitation));
+        $this->notifyInvitedUser($invitation);
         $this->activity->log($workspace->id, 'team.invited', $invitation, "Invited {$data['email']}");
 
         return response()->json(['data' => $invitation], 201);
@@ -142,6 +143,10 @@ class TeamController extends Controller
         $invitation->workspace->addMember($request->user(), WorkspaceRole::from($invitation->role));
         $invitation->update(['accepted_at' => now()]);
         $request->user()->forceFill(['current_workspace_id' => $invitation->workspace_id])->save();
+        $request->user()->unreadNotifications()
+            ->where('data->type', 'workspace.invitation')
+            ->where('data->invitation_token', $token)
+            ->update(['read_at' => now()]);
 
         return response()->json([
             'message' => 'Invitation accepted.',
@@ -161,6 +166,7 @@ class TeamController extends Controller
             'invited_by' => $request->user()->id,
         ]);
         $invitation->notify(new WorkspaceInvitationNotification($invitation));
+        $this->notifyInvitedUser($invitation);
 
         return response()->json(['message' => 'Invitation resent.']);
     }
@@ -179,7 +185,7 @@ class TeamController extends Controller
     /** @return array<int, string> */
     protected function assignableRoles(Request $request): array
     {
-        $roles = [WorkspaceRole::Manager->value, WorkspaceRole::Editor->value, WorkspaceRole::Viewer->value];
+        $roles = [WorkspaceRole::Manager->value, WorkspaceRole::Editor->value, WorkspaceRole::Viewer->value, WorkspaceRole::Client->value];
 
         if (workspace()->owner_id === $request->user()->id) {
             array_unshift($roles, WorkspaceRole::Admin->value);
@@ -196,5 +202,17 @@ class TeamController extends Controller
             403,
             'Only the workspace owner can manage administrators.',
         );
+    }
+
+    protected function notifyInvitedUser(WorkspaceInvitation $invitation): void
+    {
+        $user = User::where('email', $invitation->email)->first();
+        if ($user) {
+            $user->unreadNotifications()
+                ->where('data->type', 'workspace.invitation')
+                ->where('data->invited_workspace_id', $invitation->workspace_id)
+                ->update(['read_at' => now()]);
+            $user->notify(new WorkspaceInvitationNotification($invitation));
+        }
     }
 }

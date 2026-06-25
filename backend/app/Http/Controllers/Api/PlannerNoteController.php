@@ -9,6 +9,7 @@ use App\Services\ActivityLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class PlannerNoteController extends Controller
 {
@@ -45,10 +46,16 @@ class PlannerNoteController extends Controller
             'content_html' => ['required', 'string', 'max:50000'],
             'ai_prompt' => ['nullable', 'string', 'max:1000'],
             'scheduled_at' => ['nullable', 'date'],
+            'social_account_id' => ['nullable', 'integer', Rule::exists('social_accounts', 'id')->where('workspace_id', $workspace->id)],
             'categories' => ['nullable', 'array'],
             'categories.*' => ['string', 'max:80'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:80'],
+            'tag_colors' => ['nullable', 'array'],
+            'tag_colors.*' => ['string', 'max:20'],
+            'media_ids' => ['nullable', 'array'],
+            'media_ids.*' => ['integer', Rule::exists('media_assets', 'id')->where('workspace_id', $workspace->id)],
+            'media' => ['nullable', 'array'],
             'status' => ['nullable', 'string', 'max:50'],
         ]);
 
@@ -64,8 +71,12 @@ class PlannerNoteController extends Controller
             'meta' => array_filter([
                 'ai_prompt' => $data['ai_prompt'] ?? null,
                 'scheduled_at' => $data['scheduled_at'] ?? null,
+                'social_account_id' => $data['social_account_id'] ?? null,
                 'categories' => $data['categories'] ?? null,
                 'tags' => $data['tags'] ?? null,
+                'tag_colors' => $data['tag_colors'] ?? null,
+                'media_ids' => $data['media_ids'] ?? null,
+                'media' => $this->sanitizeMediaMeta($data['media'] ?? []),
             ]),
         ]);
 
@@ -77,16 +88,23 @@ class PlannerNoteController extends Controller
     public function update(Request $request, PlannerNote $plannerNote): JsonResponse
     {
         $this->ensureCanManage($request, $plannerNote);
+        $workspace = workspace();
 
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'content_html' => ['required', 'string', 'max:50000'],
             'ai_prompt' => ['nullable', 'string', 'max:1000'],
             'scheduled_at' => ['nullable', 'date'],
+            'social_account_id' => ['nullable', 'integer', Rule::exists('social_accounts', 'id')->where('workspace_id', $workspace->id)],
             'categories' => ['nullable', 'array'],
             'categories.*' => ['string', 'max:80'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:80'],
+            'tag_colors' => ['nullable', 'array'],
+            'tag_colors.*' => ['string', 'max:20'],
+            'media_ids' => ['nullable', 'array'],
+            'media_ids.*' => ['integer', Rule::exists('media_assets', 'id')->where('workspace_id', $workspace->id)],
+            'media' => ['nullable', 'array'],
             'status' => ['nullable', 'string', 'max:50'],
         ]);
 
@@ -100,8 +118,12 @@ class PlannerNoteController extends Controller
             'meta' => array_filter([
                 'ai_prompt' => $data['ai_prompt'] ?? null,
                 'scheduled_at' => $data['scheduled_at'] ?? null,
+                'social_account_id' => $data['social_account_id'] ?? null,
                 'categories' => $data['categories'] ?? null,
                 'tags' => $data['tags'] ?? null,
+                'tag_colors' => $data['tag_colors'] ?? null,
+                'media_ids' => $data['media_ids'] ?? null,
+                'media' => $this->sanitizeMediaMeta($data['media'] ?? []),
             ]),
         ]);
 
@@ -155,5 +177,22 @@ class PlannerNoteController extends Controller
         if (! ($role?->atLeast(WorkspaceRole::Editor) ?? false)) {
             abort(403);
         }
+    }
+
+    protected function sanitizeMediaMeta(array $media): array
+    {
+        return collect($media)
+            ->filter(fn ($item) => is_array($item) && isset($item['id']))
+            ->map(fn (array $item) => [
+                'id' => $item['id'],
+                'original_name' => $item['original_name'] ?? null,
+                'type' => $item['type'] ?? null,
+                'mime_type' => $item['mime_type'] ?? null,
+                'url' => $item['url'] ?? null,
+                'thumbnail_url' => $item['thumbnail_url'] ?? null,
+                'alt_text' => $item['alt_text'] ?? null,
+            ])
+            ->values()
+            ->all();
     }
 }

@@ -17,6 +17,8 @@ import api from '../lib/api'
 import { Button, Card, PageLoader } from '../components/ui'
 import PlatformBadge from '../components/PlatformBadge'
 import DateTimeField from '../components/DateTimeField'
+import { getHolidayItems } from '../lib/holidays'
+import { fromLocalDateTimeInput, toLocalDateTimeInput } from '../lib/datetime'
 
 const VIEWS = [
   { id: 'day', label: 'Day', icon: List },
@@ -37,6 +39,7 @@ export default function Calendar({
   showSocialData = true,
   onOpenItem = null,
   onItemChanged = null,
+  holidaySettings = null,
 }) {
   const navigate = useNavigate()
   const [cursor, setCursor] = useState(() => new Date())
@@ -57,8 +60,19 @@ export default function Calendar({
   const posts = usingExternalItems ? items : calendarData.key === rangeKey ? calendarData.posts : null
   const allPlannerNotes = useMemo(() => [...createdPlannerNotes, ...(plannerNotes || [])], [createdPlannerNotes, plannerNotes])
   const calendarItems = useMemo(() => {
+    const holidayItems = holidaySettings?.enabled
+      ? getHolidayItems({
+        settings: holidaySettings,
+        start: range.start,
+        end: range.end,
+      })
+      : []
+
     if (usingExternalItems) {
-      return (items || []).filter((item) => Boolean(item.scheduled_at)).sort(comparePosts)
+      return [
+        ...(items || []).filter((item) => Boolean(item.scheduled_at)),
+        ...holidayItems,
+      ].sort(comparePosts)
     }
 
     const socialItems = showSocialData ? (posts || []).map((post) => ({ ...post, kind: post.kind || 'post' })) : []
@@ -66,10 +80,10 @@ export default function Calendar({
       ? allPlannerNotes.map(noteToCalendarItem).filter((item) => Boolean(item.scheduled_at))
       : []
 
-    return [...socialItems, ...planItems]
+    return [...socialItems, ...planItems, ...holidayItems]
       .filter((item) => filter === 'all' || filter === 'custom' || calendarGroupFor(item) === filter)
       .sort(comparePosts)
-  }, [allPlannerNotes, filter, items, posts, showPlannerData, showSocialData, usingExternalItems])
+  }, [allPlannerNotes, filter, holidaySettings, items, posts, range.end, range.start, showPlannerData, showSocialData, usingExternalItems])
 
   useEffect(() => {
     if (usingExternalItems) return undefined
@@ -110,44 +124,49 @@ export default function Calendar({
     setSelectedPost((current) => current?.id === nextPost.id ? nextPost : current)
   }
 
-  const reschedulePost = async (post, nextDate) => {
+  const rescheduleItem = async (post, nextDate) => {
     if (!post || !canReschedule(post)) return false
 
     const original = post
     const optimistic = {
       ...post,
       scheduled_at: nextDate.toISOString(),
-      status: 'scheduled',
-      status_label: 'Scheduled',
+      status: post.kind === 'planner' ? post.status : 'scheduled',
+      status_label: post.kind === 'planner' ? post.status_label : 'Scheduled',
     }
 
-    setBusyPostId(post.id)
+    setBusyPostId(calendarUid(post))
     replacePost(optimistic)
 
     try {
-      const { data } = await api.post(`/calendar/${post.id}/reschedule`, {
-        scheduled_at: nextDate.toISOString(),
-      })
-      replacePost(data.data)
+      if (post.kind === 'planner') {
+        const { data } = await api.put(`/planner-notes/${post.id}`, plannerReschedulePayload(post, nextDate))
+        replacePost(noteToCalendarItem(data.data))
+      } else {
+        const { data } = await api.post(`/calendar/${post.id}/reschedule`, {
+          scheduled_at: nextDate.toISOString(),
+        })
+        replacePost(data.data)
+      }
       return true
     } catch (error) {
       replacePost(original)
-      window.alert(error.response?.data?.message || 'Could not reschedule this post.')
+      window.alert(error.response?.data?.message || `Could not reschedule this ${post.kind === 'planner' ? 'planner note' : 'post'}.`)
       return false
     } finally {
       setBusyPostId(null)
     }
   }
 
-  const movePost = (postId, targetDay, hour = null) => {
-    const post = posts?.find((item) => item.kind !== 'planner' && item.id === postId)
+  const moveItem = (itemUid, targetDay, hour = null) => {
+    const post = calendarItems?.find((item) => calendarUid(item) === itemUid || String(item.id) === String(itemUid))
     if (!post || !canReschedule(post)) return
 
     const current = new Date(post.scheduled_at)
     const next = new Date(targetDay)
     next.setHours(hour ?? current.getHours(), current.getMinutes(), 0, 0)
 
-    if (next.getTime() !== current.getTime()) reschedulePost(post, next)
+    if (next.getTime() !== current.getTime()) rescheduleItem(post, next)
   }
 
   const deletePost = async (post) => {
@@ -175,7 +194,7 @@ export default function Calendar({
   const saveModalDate = async (date) => {
     if (!selectedPost) return
     setModalAction('save')
-    const saved = await reschedulePost(selectedPost, date)
+    const saved = await rescheduleItem(selectedPost, date)
     setModalAction(null)
     if (saved) setSelectedPost(null)
   }
@@ -222,7 +241,7 @@ export default function Calendar({
 
   const sharedViewProps = {
     onOpen: onOpenItem || setSelectedPost,
-    onMove: movePost,
+    onMove: moveItem,
     onDragOver: setDropTarget,
     onDragEnd: () => setDropTarget(null),
     onCreatePost: createPostAt,
@@ -349,14 +368,14 @@ function DayView({ day, posts, onOpen, onMove, onDragOver, onDragEnd, onCreatePo
                 createDate={dateWithHour(day, hour)}
                 active={dropTarget === targetKey}
                 onDragOver={onDragOver}
-                onDrop={(postId) => onMove(postId, day, hour)}
+                onDrop={(itemUid) => onMove(itemUid, day, hour)}
                 onCreatePost={onCreatePost}
                 onCreatePlanner={onCreatePlanner}
                 plannerBusyDate={plannerBusyDate}
                 className="space-y-2 p-2"
               >
                 {(postsByHour[hour] || []).map((post) => (
-                  <PostCard key={post.id} post={post} detailed onOpen={onOpen} onDragEnd={onDragEnd} busy={busyPostId === post.id} />
+                  <PostCard key={calendarUid(post)} post={post} detailed onOpen={onOpen} onDragEnd={onDragEnd} busy={busyPostId === calendarUid(post)} />
                 ))}
               </DropArea>
             </div>
@@ -394,14 +413,14 @@ function WeekView({ start, postsByDay, onOpen, onMove, onDragOver, onDragEnd, on
                   createDate={dateWithHour(day, 9)}
                   active={dropTarget === targetKey}
                   onDragOver={onDragOver}
-                  onDrop={(postId) => onMove(postId, day)}
+                  onDrop={(itemUid) => onMove(itemUid, day)}
                   onCreatePost={onCreatePost}
                   onCreatePlanner={onCreatePlanner}
                   plannerBusyDate={plannerBusyDate}
                   className="min-h-[444px] space-y-2 p-2"
                 >
                   {posts.map((post) => (
-                    <PostCard key={post.id} post={post} onOpen={onOpen} onDragEnd={onDragEnd} busy={busyPostId === post.id} />
+                    <PostCard key={calendarUid(post)} post={post} onOpen={onOpen} onDragEnd={onDragEnd} busy={busyPostId === calendarUid(post)} />
                   ))}
                   {posts.length === 0 && (
                     <p className="pointer-events-none px-1 py-4 text-center text-xs text-slate-400">Drop posts here</p>
@@ -440,7 +459,7 @@ function MonthView({ cursor, start, postsByDay, onOpen, onMove, onDragOver, onDr
                   createDate={dateWithHour(day, 9)}
                   active={dropTarget === targetKey}
                   onDragOver={onDragOver}
-                  onDrop={(postId) => onMove(postId, day)}
+                  onDrop={(itemUid) => onMove(itemUid, day)}
                   onCreatePost={onCreatePost}
                   onCreatePlanner={onCreatePlanner}
                   plannerBusyDate={plannerBusyDate}
@@ -460,7 +479,7 @@ function MonthView({ cursor, start, postsByDay, onOpen, onMove, onDragOver, onDr
                   </div>
                   <div className="space-y-1.5">
                     {items.slice(0, 3).map((post) => (
-                      <PostCard key={post.id} post={post} compact onOpen={onOpen} onDragEnd={onDragEnd} busy={busyPostId === post.id} />
+                      <PostCard key={calendarUid(post)} post={post} compact onOpen={onOpen} onDragEnd={onDragEnd} busy={busyPostId === calendarUid(post)} />
                     ))}
                     {items.length > 3 && (
                       <button
@@ -495,7 +514,7 @@ function DropArea({ targetKey, createDate, active, onDragOver, onDrop, onCreateP
       }}
       onDrop={(event) => {
         event.preventDefault()
-        onDrop(Number(event.dataTransfer.getData('application/x-post-id')))
+        onDrop(event.dataTransfer.getData('application/x-calendar-uid') || event.dataTransfer.getData('application/x-post-id'))
         onDragOver(null)
       }}
     >
@@ -532,7 +551,8 @@ function DropArea({ targetKey, createDate, active, onDragOver, onDrop, onCreateP
 function PostCard({ post, compact = false, detailed = false, onOpen, onDragEnd, busy = false }) {
   const content = post.title || post.content || 'Untitled post'
   const variants = post.variants || []
-  const draggable = canReschedule(post) && !busy
+  const holiday = post.kind === 'holiday'
+  const draggable = !holiday && canReschedule(post) && !busy
   const didDrag = useRef(false)
   const planner = post.kind === 'planner'
 
@@ -543,6 +563,7 @@ function PostCard({ post, compact = false, detailed = false, onOpen, onDragEnd, 
       onDragStart={(event) => {
         didDrag.current = true
         event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('application/x-calendar-uid', calendarUid(post))
         event.dataTransfer.setData('application/x-post-id', String(post.id))
       }}
       onDragEnd={() => {
@@ -550,15 +571,17 @@ function PostCard({ post, compact = false, detailed = false, onOpen, onDragEnd, 
         window.setTimeout(() => { didDrag.current = false }, 0)
       }}
       onClick={() => {
-        if (!didDrag.current) onOpen(post)
+        if (!didDrag.current && !holiday) onOpen(post)
       }}
       className={`w-full rounded-lg border text-left text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-brand-500 dark:text-slate-200 ${
-        planner
+        holiday
+          ? 'border-emerald-100 bg-emerald-50/80 hover:border-emerald-200 dark:border-emerald-900/60 dark:bg-emerald-900/20'
+          : planner
           ? 'border-indigo-100 bg-indigo-50/80 hover:border-indigo-300 hover:bg-indigo-100/80 dark:border-indigo-900/60 dark:bg-indigo-900/20 dark:hover:border-indigo-700'
           : 'border-brand-100 bg-brand-50/80 hover:border-brand-300 hover:bg-brand-100/80 dark:border-brand-900/60 dark:bg-brand-900/20 dark:hover:border-brand-700'
       } ${
         detailed ? 'flex items-center gap-3 px-3 py-2.5' : compact ? 'px-2 py-1.5' : 'p-2.5'
-      } ${draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${busy ? 'opacity-50' : ''}`}
+      } ${draggable ? 'cursor-grab active:cursor-grabbing' : holiday ? 'cursor-default' : 'cursor-pointer'} ${busy ? 'opacity-50' : ''}`}
       title={draggable ? 'Click for details. Drag to reschedule.' : 'Click for details.'}
     >
       {!compact && (
@@ -566,7 +589,7 @@ function PostCard({ post, compact = false, detailed = false, onOpen, onDragEnd, 
       )}
       <div className={detailed ? 'w-16 shrink-0' : 'flex items-center justify-between gap-1'}>
         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 dark:text-brand-300">
-          <Clock3 className="h-3 w-3" /> {formatTime(post.scheduled_at)}
+          <Clock3 className="h-3 w-3" /> {holiday ? 'Holiday' : formatTime(post.scheduled_at)}
         </span>
         {!detailed && <StatusBadge post={post} compact />}
       </div>
@@ -574,7 +597,11 @@ function PostCard({ post, compact = false, detailed = false, onOpen, onDragEnd, 
         <p className={`truncate font-medium ${compact ? 'text-[11px]' : 'text-xs'}`}>{content}</p>
         {!compact && (
           <div className="mt-1.5 flex items-center gap-1">
-            {planner ? (
+            {holiday ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:bg-slate-800 dark:text-emerald-300">
+                <CalendarDays className="h-3 w-3" /> {post.status_label || 'Holiday'}
+              </span>
+            ) : planner ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-indigo-600 dark:bg-slate-800 dark:text-indigo-300">
                 <FileText className="h-3 w-3" /> Planner
               </span>
@@ -615,7 +642,9 @@ function PostDetailsModal({ post, action, onClose, onSave, onDelete }) {
 
   const submit = (event) => {
     event.preventDefault()
-    const date = new Date(scheduledAt)
+    const isoValue = fromLocalDateTimeInput(scheduledAt)
+    if (!isoValue) return
+    const date = new Date(isoValue)
     if (!Number.isNaN(date.getTime())) onSave(date)
   }
 
@@ -728,6 +757,21 @@ function StatusBadge({ post, compact = false }) {
     published: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
     failed: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
     cancelled: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+    public: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+    bank: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+    school: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+    observance: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+    optional: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+    marketing: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
+    global: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+    custom: 'bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300',
+    islamic: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+    christian: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+    hindu: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+    buddhist: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+    jewish: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+    sikh: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+    lunar: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
   }
 
   return (
@@ -742,7 +786,13 @@ function StatusBadge({ post, compact = false }) {
 }
 
 function canReschedule(post) {
-  return post.kind !== 'planner' && Boolean(post.scheduled_at) && !LOCKED_STATUSES.includes(post.status)
+  if (post.kind === 'holiday') return false
+  if (post.kind === 'planner') return Boolean(post.scheduled_at)
+  return Boolean(post.scheduled_at) && !LOCKED_STATUSES.includes(post.status)
+}
+
+function calendarUid(item) {
+  return item.uid || `${item.kind || 'post'}-${item.id}`
 }
 
 function getRange(cursor, view) {
@@ -794,12 +844,6 @@ function formatHour(hour) {
 function formatTime(value) {
   if (!value) return 'No time'
   return new Date(value).toLocaleTimeString('default', { hour: 'numeric', minute: '2-digit' })
-}
-
-function toLocalDateTimeInput(value) {
-  const date = new Date(value)
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 16)
 }
 
 function postCountLabel(count) {
@@ -859,10 +903,25 @@ function noteToCalendarItem(note) {
     updated_at: note.updated_at,
     variants: [],
     media: [],
+    note,
+  }
+}
+
+function plannerReschedulePayload(item, nextDate) {
+  const note = item.note || item
+  return {
+    title: note.title || item.title || 'Untitled plan',
+    content_html: note.content_html || `<p>${escapeHtml(item.content || '')}</p>`,
+    ai_prompt: note.meta?.ai_prompt || '',
+    scheduled_at: nextDate.toISOString(),
+    categories: note.meta?.categories || [],
+    tags: note.meta?.tags || [],
+    status: note.status || item.status || 'note',
   }
 }
 
 function calendarGroupFor(item) {
+  if (item.kind === 'holiday') return 'pending'
   if (item.kind === 'planner') return 'pending'
   if (['draft', 'pending_approval'].includes(item.status)) return 'pending'
   if (['approved', 'scheduled', 'publishing'].includes(item.status)) return 'progress'
