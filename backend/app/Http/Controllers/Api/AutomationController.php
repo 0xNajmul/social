@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Enums\AutomationType;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AutomationResource;
-use App\Jobs\ProcessAutomationJob;
 use App\Models\Automation;
+use App\Services\Automation\AutomationRunner;
 use App\Services\Billing\UsageGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,11 +16,14 @@ class AutomationController extends Controller
 {
     public function __construct(protected UsageGuard $usage) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $automations = workspace()->automations()->with('feeds')->latest()->get();
+        $automations = workspace()->automations()
+            ->with('feeds')
+            ->latest()
+            ->paginate(max(1, min($request->integer('per_page', 24), 100)));
 
-        return response()->json(['data' => AutomationResource::collection($automations)]);
+        return AutomationResource::collection($automations)->response();
     }
 
     public function show(Automation $automation): JsonResponse
@@ -119,11 +122,14 @@ class AutomationController extends Controller
     /**
      * Trigger an automation run immediately.
      */
-    public function run(Automation $automation): JsonResponse
+    public function run(Automation $automation, AutomationRunner $runner): JsonResponse
     {
         $this->authorize('update', $automation);
-        ProcessAutomationJob::dispatch($automation->id);
+        $created = $runner->run($automation);
 
-        return response()->json(['message' => 'Automation run queued.']);
+        return response()->json([
+            'message' => 'Automation run started.',
+            'items_created' => $created,
+        ]);
     }
 }

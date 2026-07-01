@@ -74,12 +74,28 @@ class AdminReportController extends Controller
 
     public function aiUsageHistory(Request $request): JsonResponse
     {
-        $generations = AiGeneration::query()
+        $baseQuery = AiGeneration::query()
             ->with(['user:id,name,email', 'workspace:id,name,slug'])
             ->when($request->search, fn ($query, $search) => $query->where(fn ($inner) => $inner
                 ->where('type', 'like', "%{$search}%")
                 ->orWhere('model', 'like', "%{$search}%")
-                ->orWhere('prompt', 'like', "%{$search}%")))
+                ->orWhere('prompt', 'like', "%{$search}%")
+                ->orWhere('result', 'like', "%{$search}%")
+                ->orWhereHas('user', fn ($user) => $user
+                    ->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%"))
+                ->orWhereHas('workspace', fn ($workspace) => $workspace
+                    ->where('name', 'like', "%{$search}%")
+                    ->orWhere('slug', 'like', "%{$search}%"))))
+            ->when($request->filled('type'), fn ($query) => $query->where('type', (string) $request->string('type')))
+            ->when($request->filled('model'), fn ($query) => $query->where('model', (string) $request->string('model')))
+            ->when($request->filled('user_id'), fn ($query) => $query->where('user_id', $request->integer('user_id')))
+            ->when($request->filled('workspace_id'), fn ($query) => $query->where('workspace_id', $request->integer('workspace_id')))
+            ->when($request->filled('date_from'), fn ($query) => $query->whereDate('created_at', '>=', $request->date('date_from')))
+            ->when($request->filled('date_to'), fn ($query) => $query->whereDate('created_at', '<=', $request->date('date_to')));
+
+        $summaryQuery = clone $baseQuery;
+        $generations = $baseQuery
             ->latest()
             ->paginate($request->integer('per_page', 50));
 
@@ -88,14 +104,26 @@ class AdminReportController extends Controller
                 'id' => $generation->id,
                 'type' => $generation->type,
                 'model' => $generation->model,
-                'prompt' => Str::limit($generation->prompt, 160),
+                'prompt' => $generation->prompt,
+                'prompt_preview' => Str::limit($generation->prompt, 180),
+                'result' => $generation->result,
+                'result_preview' => Str::limit($generation->result, 220),
+                'params' => $generation->params ?? [],
                 'tokens_used' => $generation->tokens_used,
                 'credits_used' => $generation->credits_used,
                 'user' => $generation->user,
                 'workspace' => $generation->workspace,
                 'created_at' => $generation->created_at,
             ])->values(),
-            'meta' => $this->meta($generations),
+            'meta' => [
+                ...$this->meta($generations),
+                'summary' => [
+                    'requests' => (clone $summaryQuery)->count(),
+                    'tokens' => (int) (clone $summaryQuery)->sum('tokens_used'),
+                    'credits' => (int) (clone $summaryQuery)->sum('credits_used'),
+                    'models' => (clone $summaryQuery)->distinct()->whereNotNull('model')->count('model'),
+                ],
+            ],
         ]);
     }
 

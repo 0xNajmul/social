@@ -30,21 +30,31 @@ class WorkspaceTest extends TestCase
             ->assertJsonStructure(['data' => [['key', 'label', 'capabilities']]]);
     }
 
-    public function test_user_can_connect_demo_social_account(): void
+    public function test_user_can_connect_demo_social_accounts_for_common_oauth_platforms(): void
     {
-        $user = $this->actingAsUser();
+        $platforms = [
+            ['twitter', 'twitter'],
+            ['reddit', 'reddit'],
+            ['thread', 'threads'],
+            ['threads', 'threads'],
+            ['snapchat', 'snapchat'],
+        ];
 
-        $response = $this->postJson('/api/social/accounts/connect', [
-            'platform' => 'twitter',
-        ], $this->workspaceHeaders($user));
+        foreach ($platforms as [$requestedPlatform, $storedPlatform]) {
+            $user = $this->actingAsUser();
 
-        $response->assertCreated()
-            ->assertJsonPath('data.platform', 'twitter')
-            ->assertJsonPath('mode', 'demo');
+            $response = $this->postJson('/api/social/accounts/connect', [
+                'platform' => $requestedPlatform,
+            ], $this->workspaceHeaders($user));
 
-        $this->assertDatabaseHas('social_accounts', [
-            'platform' => 'twitter',
-        ]);
+            $response->assertCreated()
+                ->assertJsonPath('data.platform', $storedPlatform)
+                ->assertJsonPath('mode', 'demo');
+
+            $this->assertDatabaseHas('social_accounts', [
+                'platform' => $storedPlatform,
+            ]);
+        }
     }
 
     public function test_dashboard_returns_stats(): void

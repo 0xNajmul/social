@@ -12,8 +12,14 @@ class Plan extends Model
     use HasFactory;
 
     protected $fillable = [
-        'name', 'slug', 'description', 'price_monthly', 'price_yearly', 'currency',
-        'stripe_monthly_price_id', 'stripe_yearly_price_id', 'trial_days',
+        'name', 'slug', 'description', 'price_monthly', 'price_yearly',
+        'price_lifetime', 'currency', 'stripe_monthly_price_id',
+        'stripe_yearly_price_id', 'trial_days', 'lifetime_enabled',
+        'preferred_payment_provider', 'dodo_monthly_product_id',
+        'dodo_yearly_product_id', 'dodo_lifetime_product_id',
+        'creem_monthly_product_id', 'creem_yearly_product_id',
+        'creem_lifetime_product_id', 'checkout_success_url',
+        'checkout_cancel_url', 'payment_meta',
         'max_workspaces', 'max_team_members', 'max_social_accounts',
         'max_scheduled_posts', 'max_monthly_posts', 'max_automations',
         'max_ai_credits', 'max_storage_mb', 'features', 'is_active',
@@ -24,6 +30,8 @@ class Plan extends Model
     {
         return [
             'features' => 'array',
+            'lifetime_enabled' => 'boolean',
+            'payment_meta' => 'array',
             'is_active' => 'boolean',
             'is_featured' => 'boolean',
         ];

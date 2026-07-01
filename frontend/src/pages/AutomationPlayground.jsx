@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Background,
@@ -8,7 +8,9 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  NodeResizer,
   addEdge,
+  applyNodeChanges,
   useEdgesState,
   useNodesState,
 } from '@xyflow/react'
@@ -17,8 +19,11 @@ import {
   ArrowLeft,
   BarChart3,
   Bell,
+  BellRing,
   Bot,
   Check,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   Clock3,
   Code,
@@ -29,10 +34,19 @@ import {
   FileJson,
   FileText,
   Filter,
+  FolderOpen,
   GitBranch,
+  GripVertical,
+  Group,
   ImagePlus,
   Layers3,
   ListChecks,
+  Lock,
+  LockOpen,
+  Mail,
+  MessageSquare,
+  MousePointer2,
+  Palette,
   Play,
   PlugZap,
   Plus,
@@ -45,9 +59,13 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  SquareDashedMousePointer,
+  StickyNote,
   Timer,
   Trash2,
+  Ungroup,
   Upload,
+  Users,
   WandSparkles,
   Webhook,
   Workflow,
@@ -57,10 +75,16 @@ import {
 import clsx from 'clsx'
 import api from '../lib/api'
 import { AccountIcon, PLATFORMS } from '../components/PlatformBadge'
+import MediaDropzone from '../components/composer/MediaDropzone'
+import MediaLibraryPicker from '../components/composer/MediaLibraryPicker'
 import { Badge, Button, Input, PageLoader, Textarea } from '../components/ui'
+import { mediaUrl } from '../lib/media'
 
 const NODE_TYPES = { workflowNode: WorkflowNode }
 const BUILDER_VERSION = 'social_mvp_v1'
+const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif,image/webp'
+const IMAGE_ACCEPT_LABEL = 'JPG, PNG, GIF, WEBP'
+const IMAGE_MEDIA_TYPES = ['image', 'gif']
 
 const CATEGORY_ORDER = [
   'Triggers',
@@ -74,6 +98,7 @@ const CATEGORY_ORDER = [
   'Notifications',
   'Data / Integrations',
   'Developer Tools',
+  'Canvas Tools',
 ]
 
 const CATEGORY_ICONS = {
@@ -88,6 +113,7 @@ const CATEGORY_ICONS = {
   Notifications: Bell,
   'Data / Integrations': Database,
   'Developer Tools': Code,
+  'Canvas Tools': StickyNote,
 }
 
 const CATEGORY_TONES = {
@@ -102,6 +128,7 @@ const CATEGORY_TONES = {
   Notifications: 'orange',
   'Data / Integrations': 'teal',
   'Developer Tools': 'gray',
+  'Canvas Tools': 'amber',
 }
 
 const NODE_TONES = {
@@ -210,9 +237,9 @@ const BASE_NODE_DEFINITIONS = [
     description: 'Runs daily, weekly, or on a fixed interval.',
     icon: Clock3,
     tone: 'sky',
-    defaults: { cadence: 'daily', time: '09:00', timezone: 'workspace', interval_minutes: 1440 },
+    defaults: { cadence: 'hourly', time: '09:00', timezone: 'workspace', interval_minutes: 60 },
     fields: [
-      { key: 'cadence', label: 'Cadence', type: 'select', options: [['daily', 'Daily'], ['weekly', 'Weekly'], ['interval', 'Every N minutes']] },
+      { key: 'cadence', label: 'Cadence', type: 'select', options: [['hourly', 'Every hour'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['interval', 'Every N minutes']] },
       { key: 'time', label: 'Time', type: 'time' },
       { key: 'interval_minutes', label: 'Interval minutes', type: 'number', min: 5 },
       { key: 'timezone', label: 'Timezone', type: 'select', options: [['workspace', 'Workspace timezone'], ['UTC', 'UTC'], ['America/New_York', 'America/New_York'], ['Europe/London', 'Europe/London'], ['Asia/Dhaka', 'Asia/Dhaka']] },
@@ -249,13 +276,14 @@ const BASE_NODE_DEFINITIONS = [
     key: 'create_post',
     category: 'Content',
     label: 'Create Post',
-    description: 'Defines post text, link, and campaign context.',
+    description: 'Defines post text, image, link, and campaign context.',
     icon: FileText,
     tone: 'emerald',
-    defaults: { title: '', caption: '', link: '', campaign: '' },
+    defaults: { title: '', caption: '', image_url: '', media: [], media_ids: [], media_urls: [], link: '', campaign: '' },
     fields: [
       { key: 'title', label: 'Post title', type: 'text' },
       { key: 'caption', label: 'Caption', type: 'textarea', placeholder: 'Write the source caption or use {{rss.title}}.' },
+      { key: 'image_url', label: 'Image URL', type: 'text', placeholder: 'https://example.com/image.jpg' },
       { key: 'link', label: 'Link', type: 'text', placeholder: '{{rss.link}}' },
       { key: 'campaign', label: 'Campaign', type: 'text' },
     ],
@@ -296,6 +324,32 @@ const BASE_NODE_DEFINITIONS = [
     defaults: { tone: 'friendly', length: 'medium', include_cta: true },
     fields: [
       { key: 'tone', label: 'Tone', type: 'select', options: [['friendly', 'Friendly'], ['professional', 'Professional'], ['playful', 'Playful'], ['urgent', 'Urgent'], ['educational', 'Educational']] },
+      { key: 'length', label: 'Length', type: 'select', options: [['short', 'Short'], ['medium', 'Medium'], ['long', 'Long']] },
+      { key: 'include_cta', label: 'Include call to action', type: 'checkbox' },
+    ],
+  },
+  {
+    key: 'ai_content_generator',
+    category: 'AI Tools',
+    label: 'AI Content Generator',
+    description: 'Generates a complete post from a feed item, idea, or custom prompt.',
+    icon: Bot,
+    tone: 'violet',
+    defaults: {
+      source: 'feed_or_topic',
+      topic: '',
+      prompt: 'Create a useful social post from this idea. Keep it clear, specific, and ready to publish.',
+      tone: 'professional',
+      content_type: 'social_post',
+      length: 'medium',
+      include_cta: true,
+    },
+    fields: [
+      { key: 'source', label: 'Source', type: 'select', options: [['feed_or_topic', 'Feed item or topic'], ['feed', 'Feed item only'], ['topic', 'Topic only'], ['custom_prompt', 'Custom prompt']] },
+      { key: 'topic', label: 'Fallback topic', type: 'text', placeholder: 'Telegram update ideas for our audience' },
+      { key: 'prompt', label: 'Instruction', type: 'textarea' },
+      { key: 'tone', label: 'Tone', type: 'select', options: [['professional', 'Professional'], ['friendly', 'Friendly'], ['educational', 'Educational'], ['bold', 'Bold'], ['witty', 'Witty']] },
+      { key: 'content_type', label: 'Content type', type: 'select', options: [['social_post', 'Social post'], ['telegram_post', 'Telegram post'], ['announcement', 'Announcement'], ['thread', 'Thread outline']] },
       { key: 'length', label: 'Length', type: 'select', options: [['short', 'Short'], ['medium', 'Medium'], ['long', 'Long']] },
       { key: 'include_cta', label: 'Include call to action', type: 'checkbox' },
     ],
@@ -387,12 +441,8 @@ const BASE_NODE_DEFINITIONS = [
     description: 'Waits for a fixed delay or a planned publish time.',
     icon: Timer,
     tone: 'slate',
-    defaults: { mode: 'delay', delay_minutes: 30, wait_until: '' },
-    fields: [
-      { key: 'mode', label: 'Mode', type: 'select', options: [['delay', 'Delay'], ['wait_until', 'Wait until date field']] },
-      { key: 'delay_minutes', label: 'Delay minutes', type: 'number', min: 1 },
-      { key: 'wait_until', label: 'Date field', type: 'text', placeholder: '{{post.scheduled_at}}' },
-    ],
+    defaults: { mode: 'delay', delay_value: 30, delay_unit: 'minutes', wait_until: '{{post.scheduled_at}}', max_wait_hours: 168 },
+    fields: [],
   },
   {
     key: 'approval_required',
@@ -453,14 +503,20 @@ const BASE_NODE_DEFINITIONS = [
     key: 'send_notification',
     category: 'Notifications',
     label: 'Send Notification',
-    description: 'Notifies workspace users about workflow activity.',
-    icon: Bell,
+    description: 'Routes clear workflow updates to the right workspace audience.',
+    icon: BellRing,
     tone: 'orange',
-    defaults: { channel: 'in_app', event: 'run_completed' },
-    fields: [
-      { key: 'channel', label: 'Channel', type: 'select', options: [['in_app', 'In app'], ['email', 'Email'], ['both', 'In app and email']] },
-      { key: 'event', label: 'Event', type: 'select', options: [['run_completed', 'Run completed'], ['approval_needed', 'Approval needed'], ['publish_failed', 'Publish failed'], ['token_warning', 'Token warning']] },
-    ],
+    defaults: {
+      channel: 'in_app',
+      event: 'run_completed',
+      audience: 'automation_owner',
+      priority: 'normal',
+      title: 'Workflow completed: {{automation.name}}',
+      message: '{{automation.name}} finished successfully. Review the latest output when you are ready.',
+      action_label: 'Open automation',
+      include_context: true,
+    },
+    fields: [],
   },
   {
     key: 'send_failure_alert',
@@ -502,6 +558,26 @@ const BASE_NODE_DEFINITIONS = [
       { key: 'include_payload', label: 'Include workflow payload', type: 'checkbox' },
     ],
   },
+  {
+    key: 'group_background',
+    category: 'Canvas Tools',
+    label: 'Section Background',
+    description: 'Resizable background that groups related workflow steps.',
+    icon: Group,
+    tone: 'amber',
+    defaults: { color: 'sky', comment: 'Explain what this section does and why it exists.', locked: false, member_ids: [] },
+    fields: [],
+  },
+  {
+    key: 'sticky_note',
+    category: 'Canvas Tools',
+    label: 'Comment / Sticky Note',
+    description: 'Add workflow documentation, warnings, TODOs, or handoff notes.',
+    icon: StickyNote,
+    tone: 'amber',
+    defaults: { color: 'amber', comment: 'Add a note for teammates or your future self.', locked: false },
+    fields: [],
+  },
 ]
 
 const OLD_KIND_MAP = {
@@ -523,6 +599,7 @@ const NODE_ICON_COMPONENTS = {
   platform_variant_generator: Layers3,
   content_library: Database,
   ai_caption_generator: WandSparkles,
+  ai_content_generator: Bot,
   ai_hashtag_generator: Sparkles,
   ai_summarize_article: Bot,
   add_media: ImagePlus,
@@ -534,10 +611,12 @@ const NODE_ICON_COMPONENTS = {
   publish_social_account: Send,
   create_draft: FileText,
   get_post_analytics: BarChart3,
-  send_notification: Bell,
+  send_notification: BellRing,
   send_failure_alert: CircleAlert,
   csv_import: Upload,
   webhook_notification: PlugZap,
+  group_background: Group,
+  sticky_note: StickyNote,
 }
 
 const TEMPLATE_DEFINITIONS = [
@@ -545,47 +624,239 @@ const TEMPLATE_DEFINITIONS = [
     key: 'daily_social_post',
     name: 'Daily Social Post',
     description: 'Schedule, draft, validate, publish, notify.',
-    nodes: ['schedule_trigger', 'create_post', 'ai_caption_generator', 'platform_media_validator', 'publish_social_account', 'send_notification'],
+    category: 'Publishing',
+    complexity: 'Standard',
+    outcome: 'Scheduled social content with completion alerts.',
+    nodes: ['schedule_trigger', 'ai_content_generator', 'create_post', 'platform_media_validator', 'publish_social_account', 'send_notification'],
+  },
+  {
+    key: 'daily_ai_telegram_publisher',
+    name: 'Daily AI Telegram Publisher',
+    description: 'Feed ideas, AI post, Telegram publish, notify.',
+    category: 'Publishing',
+    complexity: 'Advanced',
+    outcome: 'RSS/feed ideas become scheduled Telegram posts automatically.',
+    platform: 'telegram',
+    schedule: { cadence: 'hourly', interval_minutes: 60, time: '09:00', timezone: 'workspace' },
+    nodes: ['schedule_trigger', 'rss_feed_trigger', 'ai_content_generator', 'ai_hashtag_generator', 'create_post', 'publish_social_account', 'send_notification'],
   },
   {
     key: 'rss_news_auto_poster',
     name: 'RSS News Auto Poster',
     description: 'Feed item to summary, approval, publish.',
+    category: 'Content intake',
+    complexity: 'Advanced',
+    outcome: 'RSS articles become approved social posts.',
     nodes: ['rss_feed_trigger', 'ai_summarize_article', 'ai_hashtag_generator', 'approval_required', 'publish_social_account', 'send_failure_alert'],
   },
   {
     key: 'blog_to_social',
     name: 'Blog to Social',
     description: 'Webhook or feed item to platform variants.',
+    category: 'Distribution',
+    complexity: 'Advanced',
+    outcome: 'One source is adapted for multiple channels.',
     nodes: ['webhook_trigger', 'create_post', 'platform_variant_generator', 'router', 'publish_social_account', 'get_post_analytics'],
   },
   {
     key: 'google_sheet_to_social',
     name: 'CSV to Social',
     description: 'Imported rows become approved drafts.',
+    category: 'Operations',
+    complexity: 'Standard',
+    outcome: 'Bulk campaign rows become reviewable drafts.',
     nodes: ['manual_trigger', 'csv_import', 'filter', 'create_post', 'approval_required', 'create_draft'],
   },
   {
     key: 'multi_platform_campaign',
     name: 'Multi-platform Campaign',
     description: 'One content source, routed platform posts.',
+    category: 'Campaigns',
+    complexity: 'Advanced',
+    outcome: 'Approved content is prepared for every connected channel.',
     nodes: ['manual_trigger', 'content_library', 'platform_variant_generator', 'add_media', 'router', 'publish_social_account'],
   },
   {
     key: 'approval_workflow',
     name: 'Approval Workflow',
     description: 'Draft, review, wait, publish.',
+    category: 'Governance',
+    complexity: 'Standard',
+    outcome: 'Human review protects scheduled publishing.',
     nodes: ['manual_trigger', 'create_post', 'approval_required', 'delay_wait_until', 'publish_social_account', 'send_notification'],
   },
   {
     key: 'failure_alert',
     name: 'Failure Alert',
     description: 'Publish with retry and alert path.',
+    category: 'Reliability',
+    complexity: 'Starter',
+    outcome: 'Publishing issues notify the right team quickly.',
     nodes: ['manual_trigger', 'create_post', 'publish_social_account', 'send_failure_alert', 'webhook_notification'],
+  },
+  {
+    key: 'evergreen_recycle',
+    name: 'Evergreen Recycle',
+    description: 'Reuse approved posts, route, publish, measure.',
+    category: 'Lifecycle',
+    complexity: 'Advanced',
+    outcome: 'Evergreen content is resurfaced with performance tracking.',
+    nodes: ['schedule_trigger', 'content_library', 'filter', 'platform_variant_generator', 'publish_social_account', 'get_post_analytics', 'send_notification'],
+  },
+  {
+    key: 'approval_sla',
+    name: 'Approval SLA Reminder',
+    description: 'Create draft, request approval, wait, notify.',
+    category: 'Governance',
+    complexity: 'Standard',
+    outcome: 'Delayed approvals surface before launch windows are missed.',
+    nodes: ['manual_trigger', 'create_post', 'approval_required', 'delay_wait_until', 'send_notification', 'create_draft'],
+  },
+  {
+    key: 'rss_review_queue',
+    name: 'RSS Review Queue',
+    description: 'Watch feed, filter, summarize, draft for review.',
+    category: 'Content intake',
+    complexity: 'Standard',
+    outcome: 'Relevant articles are prepared as editor-ready drafts.',
+    nodes: ['rss_feed_trigger', 'filter', 'ai_summarize_article', 'ai_hashtag_generator', 'create_draft', 'send_notification'],
+  },
+  {
+    key: 'performance_loop',
+    name: 'Performance Loop',
+    description: 'Collect analytics and create follow-up content.',
+    category: 'Analytics',
+    complexity: 'Advanced',
+    outcome: 'High-signal analytics turn into the next content draft.',
+    nodes: ['schedule_trigger', 'get_post_analytics', 'filter', 'ai_caption_generator', 'create_post', 'send_notification'],
+  },
+  {
+    key: 'token_health_watch',
+    name: 'Token Health Watch',
+    description: 'Check accounts and notify before failures happen.',
+    category: 'Reliability',
+    complexity: 'Starter',
+    outcome: 'Account issues are visible before scheduled posts fail.',
+    nodes: ['schedule_trigger', 'filter', 'send_notification'],
+  },
+  {
+    key: 'launch_campaign',
+    name: 'Launch Campaign',
+    description: 'Manual launch, approve, wait, publish, report.',
+    category: 'Campaigns',
+    complexity: 'Advanced',
+    outcome: 'Launch content moves through review, timing, publishing, and analytics.',
+    nodes: ['manual_trigger', 'create_post', 'platform_variant_generator', 'approval_required', 'delay_wait_until', 'publish_social_account', 'get_post_analytics', 'send_notification'],
+  },
+  {
+    key: 'incident_escalation',
+    name: 'Incident Escalation',
+    description: 'Webhook trigger, filter, alert, external callback.',
+    category: 'Reliability',
+    complexity: 'Advanced',
+    outcome: 'Critical workflow events create internal and external alerts.',
+    nodes: ['webhook_trigger', 'filter', 'send_failure_alert', 'send_notification', 'webhook_notification'],
+  },
+  {
+    key: 'media_compliance_check',
+    name: 'Media Compliance Check',
+    description: 'Attach media, validate, approve, publish.',
+    category: 'Media',
+    complexity: 'Standard',
+    outcome: 'Media-heavy posts are checked before they reach channels.',
+    nodes: ['manual_trigger', 'create_post', 'add_media', 'platform_media_validator', 'approval_required', 'publish_social_account', 'send_notification'],
   },
 ]
 
-function WorkflowNode({ data, selected }) {
+const NOTIFICATION_CHANNELS = [
+  { value: 'in_app', label: 'In app', description: 'Show inside Postflow notification center.', icon: Bell },
+  { value: 'email', label: 'Email', description: 'Prepare the message for email delivery.', icon: Mail },
+  { value: 'both', label: 'Both', description: 'Use in-app delivery and email metadata.', icon: MessageSquare },
+]
+
+const NOTIFICATION_EVENTS = [
+  { value: 'run_started', label: 'Run started', title: 'Workflow started: {{automation.name}}', message: '{{automation.name}} started running at {{now}}.' },
+  { value: 'run_completed', label: 'Run completed', title: 'Workflow completed: {{automation.name}}', message: '{{automation.name}} finished successfully. Review the latest output when you are ready.' },
+  { value: 'delay_waiting', label: 'Waiting', title: 'Workflow paused: {{automation.name}}', message: '{{automation.name}} is waiting for {{delay.duration}} and will resume automatically.' },
+  { value: 'approval_needed', label: 'Approval needed', title: 'Approval needed: {{automation.name}}', message: '{{automation.name}} created content that needs review before it can continue.' },
+  { value: 'publish_failed', label: 'Publish failed', title: 'Publishing failed: {{automation.name}}', message: '{{automation.name}} could not publish the selected post. Check the workflow run and reconnect accounts if needed.' },
+  { value: 'token_warning', label: 'Token warning', title: 'Account attention needed', message: 'A connected account used by {{automation.name}} may need reconnection before the next run.' },
+  { value: 'custom', label: 'Custom', title: 'Workflow update: {{automation.name}}', message: 'A workflow step completed and needs your attention.' },
+]
+
+const NOTIFICATION_AUDIENCES = [
+  ['automation_owner', 'Automation owner'],
+  ['workspace_admins', 'Workspace admins'],
+  ['all_members', 'All workspace members'],
+]
+
+const NOTIFICATION_PRIORITIES = [
+  ['low', 'Low'],
+  ['normal', 'Normal'],
+  ['high', 'High'],
+  ['critical', 'Critical'],
+]
+
+const CANVAS_COLORS = {
+  amber: {
+    label: 'Amber',
+    swatch: 'bg-amber-400',
+    note: 'border-amber-200 bg-amber-50 text-amber-950 shadow-amber-950/5 dark:border-amber-900/70 dark:bg-amber-950/70 dark:text-amber-100',
+    group: 'border-amber-300 bg-amber-100/35 dark:border-amber-700 dark:bg-amber-950/20',
+    header: 'text-amber-800 dark:text-amber-200',
+    resize: '#f59e0b',
+  },
+  sky: {
+    label: 'Sky',
+    swatch: 'bg-sky-400',
+    note: 'border-sky-200 bg-sky-50 text-sky-950 shadow-sky-950/5 dark:border-sky-900/70 dark:bg-sky-950/70 dark:text-sky-100',
+    group: 'border-sky-300 bg-sky-100/35 dark:border-sky-700 dark:bg-sky-950/20',
+    header: 'text-sky-800 dark:text-sky-200',
+    resize: '#0ea5e9',
+  },
+  emerald: {
+    label: 'Emerald',
+    swatch: 'bg-emerald-400',
+    note: 'border-emerald-200 bg-emerald-50 text-emerald-950 shadow-emerald-950/5 dark:border-emerald-900/70 dark:bg-emerald-950/70 dark:text-emerald-100',
+    group: 'border-emerald-300 bg-emerald-100/35 dark:border-emerald-700 dark:bg-emerald-950/20',
+    header: 'text-emerald-800 dark:text-emerald-200',
+    resize: '#10b981',
+  },
+  violet: {
+    label: 'Violet',
+    swatch: 'bg-violet-400',
+    note: 'border-violet-200 bg-violet-50 text-violet-950 shadow-violet-950/5 dark:border-violet-900/70 dark:bg-violet-950/70 dark:text-violet-100',
+    group: 'border-violet-300 bg-violet-100/35 dark:border-violet-700 dark:bg-violet-950/20',
+    header: 'text-violet-800 dark:text-violet-200',
+    resize: '#8b5cf6',
+  },
+  rose: {
+    label: 'Rose',
+    swatch: 'bg-rose-400',
+    note: 'border-rose-200 bg-rose-50 text-rose-950 shadow-rose-950/5 dark:border-rose-900/70 dark:bg-rose-950/70 dark:text-rose-100',
+    group: 'border-rose-300 bg-rose-100/35 dark:border-rose-700 dark:bg-rose-950/20',
+    header: 'text-rose-800 dark:text-rose-200',
+    resize: '#f43f5e',
+  },
+  slate: {
+    label: 'Slate',
+    swatch: 'bg-slate-400',
+    note: 'border-slate-200 bg-white text-slate-950 shadow-slate-950/5 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+    group: 'border-slate-300 bg-slate-200/30 dark:border-slate-600 dark:bg-slate-800/20',
+    header: 'text-slate-800 dark:text-slate-200',
+    resize: '#64748b',
+  },
+}
+
+function WorkflowNode({ data, id, selected }) {
+  if (data?.key === 'group_background') {
+    return <CanvasGroupNode data={data} id={id} selected={selected} />
+  }
+
+  if (data?.key === 'sticky_note') {
+    return <StickyNoteNode data={data} id={id} selected={selected} />
+  }
+
   const tone = NODE_TONES[data?.tone] || NODE_TONES.slate
   const status = data?.status || 'draft'
 
@@ -623,6 +894,62 @@ function WorkflowNode({ data, selected }) {
   )
 }
 
+function CanvasGroupNode({ data, id, selected }) {
+  const config = data?.config || {}
+  const color = CANVAS_COLORS[config.color] || CANVAS_COLORS.sky
+  const locked = Boolean(config.locked)
+  const memberCount = Array.isArray(config.member_ids) ? config.member_ids.length : 0
+
+  return (
+    <div className={clsx('workflow-group-drag h-full w-full rounded-xl border-2 border-dashed p-3 transition', color.group, selected && 'ring-2 ring-brand-500/40')}>
+      <NodeResizer
+        color={color.resize}
+        isVisible={selected && !locked}
+        minHeight={150}
+        minWidth={240}
+        handleClassName="!h-3 !w-3 !rounded-full !border-2 !border-white"
+        lineClassName="!border-brand-400"
+      />
+      <div className="pointer-events-none flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className={clsx('truncate text-sm font-bold', color.header)}>{data?.label || 'Workflow section'}</p>
+          {config.comment && <p className="mt-1 max-w-[34rem] line-clamp-2 text-xs leading-5 text-slate-600 dark:text-slate-300">{config.comment}</p>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 shadow-sm dark:bg-slate-900/80 dark:text-slate-300">
+          {locked ? <Lock className="h-3 w-3" /> : <Group className="h-3 w-3" />}
+          {memberCount} nodes
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StickyNoteNode({ data, id, selected }) {
+  const config = data?.config || {}
+  const color = CANVAS_COLORS[config.color] || CANVAS_COLORS.amber
+  const locked = Boolean(config.locked)
+
+  return (
+    <div className={clsx('workflow-note-drag h-full w-full rounded-xl border p-3 shadow-lg transition', color.note, selected && 'ring-2 ring-brand-500/40')}>
+      <NodeResizer
+        color={color.resize}
+        isVisible={selected && !locked}
+        minHeight={120}
+        minWidth={210}
+        handleClassName="!h-3 !w-3 !rounded-full !border-2 !border-white"
+        lineClassName="!border-brand-400"
+      />
+      <div className="pointer-events-none flex h-full flex-col">
+        <div className="flex items-center justify-between gap-2">
+          <p className={clsx('truncate text-sm font-bold', color.header)}>{data?.label || 'Comment'}</p>
+          {locked ? <Lock className="h-4 w-4 shrink-0 opacity-70" /> : <StickyNote className="h-4 w-4 shrink-0 opacity-70" />}
+        </div>
+        <p className="mt-2 min-h-0 flex-1 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-slate-700 dark:text-slate-200">{config.comment || 'Add a note.'}</p>
+      </div>
+    </div>
+  )
+}
+
 export default function AutomationPlayground() {
   return (
     <ReactFlowProvider>
@@ -635,6 +962,7 @@ function AutomationPlaygroundContent() {
   const { id } = useParams()
   const navigate = useNavigate()
   const canvasLeft = useWorkspaceCanvasLeft()
+  const builderRef = useRef(null)
   const [automation, setAutomation] = useState(null)
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -642,14 +970,21 @@ function AutomationPlaygroundContent() {
   const [running, setRunning] = useState(false)
   const [message, setMessage] = useState(null)
   const [selectedNodeId, setSelectedNodeId] = useState(null)
+  const [selectedNodeIds, setSelectedNodeIds] = useState([])
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null)
+  const [selectedEdgeIds, setSelectedEdgeIds] = useState([])
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
+  const [inspectorPosition, setInspectorPosition] = useState({ top: 88, right: 16 })
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
   const [settings, setSettings] = useState(defaultSettings())
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
+  const [nodes, setNodes] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
 
   const definitions = useMemo(() => buildNodeDefinitions(accounts), [accounts])
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) || null, [nodes, selectedNodeId])
+  const selectedNodes = useMemo(() => nodes.filter((node) => selectedNodeIds.includes(node.id)), [nodes, selectedNodeIds])
   const checks = useMemo(() => workflowChecks(nodes, edges, accounts, settings), [accounts, edges, nodes, settings])
   const connectedAccounts = useMemo(() => accounts.filter((account) => isUsableAccount(account)), [accounts])
 
@@ -671,7 +1006,10 @@ function AutomationPlaygroundContent() {
         setSettings(nextSettings)
         setNodes(workflow.nodes)
         setEdges(workflow.edges)
-        setSelectedNodeId(workflow.nodes[0]?.id || null)
+        setSelectedNodeId(null)
+        setSelectedNodeIds([])
+        setSelectedEdgeId(null)
+        setSelectedEdgeIds([])
       })
       .catch(() => {
         if (!active) return
@@ -692,6 +1030,48 @@ function AutomationPlaygroundContent() {
 
   const notify = (type, text) => setMessage({ type, text })
 
+  const handleNodesChange = useCallback((changes) => {
+    setNodes((current) => {
+      const changedIds = new Set(changes.map((change) => change.id))
+      const augmentedChanges = [...changes]
+
+      changes.forEach((change) => {
+        if (change.type !== 'position' || !change.position) return
+        const group = current.find((node) => node.id === change.id && node.data?.key === 'group_background')
+        if (!group || group.data?.config?.locked) return
+        const memberIds = new Set(Array.isArray(group.data?.config?.member_ids) ? group.data.config.member_ids : [])
+        if (memberIds.size === 0) return
+        const dx = change.position.x - group.position.x
+        const dy = change.position.y - group.position.y
+        if (!dx && !dy) return
+
+        current.forEach((node) => {
+          if (!memberIds.has(node.id) || changedIds.has(node.id)) return
+          augmentedChanges.push({
+            id: node.id,
+            type: 'position',
+            position: { x: node.position.x + dx, y: node.position.y + dy },
+            dragging: change.dragging,
+          })
+        })
+      })
+
+      return applyNodeChanges(augmentedChanges, current)
+    })
+  }, [setNodes])
+
+  const handleSelectionChange = useCallback(({ nodes: nextNodes = [], edges: nextEdges = [] }) => {
+    const nodeIds = nextNodes.map((node) => node.id)
+    const edgeIds = nextEdges.map((edge) => edge.id)
+    setSelectedNodeIds(nodeIds)
+    setSelectedEdgeIds(edgeIds)
+    setSelectedNodeId(nodeIds.length === 1 ? nodeIds[0] : null)
+    setSelectedEdgeId(edgeIds.length === 1 && nodeIds.length === 0 ? edgeIds[0] : null)
+    if (nodeIds.length > 1) {
+      setInspectorOpen(false)
+    }
+  }, [])
+
   const onConnect = useCallback((connection) => {
     setEdges((current) => addEdge({ ...connection, type: 'smoothstep', animated: true }, current))
   }, [setEdges])
@@ -701,10 +1081,13 @@ function AutomationPlaygroundContent() {
       position: nextNodePosition(nodes, definition.category),
     })
     setNodes((current) => [...current, nextNode])
-    if (selectedNodeId) {
+    if (selectedNodeId && !isCanvasElementKey(definition.key) && !isCanvasElement(selectedNode)) {
       setEdges((current) => addEdge({ id: `${selectedNodeId}-${nextNode.id}`, source: selectedNodeId, target: nextNode.id, type: 'smoothstep', animated: true }, current))
     }
     setSelectedNodeId(nextNode.id)
+    setSelectedNodeIds([nextNode.id])
+    setInspectorOpen(true)
+    setInspectorCollapsed(false)
   }
 
   const applyTemplate = (template) => {
@@ -712,9 +1095,14 @@ function AutomationPlaygroundContent() {
     setNodes(workflow.nodes)
     setEdges(workflow.edges)
     setSelectedNodeId(workflow.nodes[0]?.id || null)
+    setSelectedNodeIds(workflow.nodes[0]?.id ? [workflow.nodes[0].id] : [])
+    setInspectorOpen(true)
+    setInspectorCollapsed(false)
     setSettings((current) => ({
       ...current,
       category: template.name,
+      schedule: { ...(current.schedule || defaultScheduleSettings()), ...(template.schedule || {}) },
+      interval_minutes: Number(template.schedule?.interval_minutes || current.interval_minutes || 60),
       requires_approval: workflow.nodes.some((node) => node.data.key === 'approval_required'),
       use_ai: workflow.nodes.some((node) => node.data.category === 'AI Tools'),
     }))
@@ -724,7 +1112,11 @@ function AutomationPlaygroundContent() {
   const updateNodeConfig = (nodeId, key, value) => {
     setNodes((current) => current.map((node) => (
       node.id === nodeId
-        ? { ...node, data: { ...node.data, status: 'draft', config: { ...(node.data.config || {}), [key]: value } } }
+        ? {
+          ...node,
+          draggable: key === 'locked' && isCanvasElement(node) ? !value : node.draggable,
+          data: { ...node.data, status: 'draft', config: { ...(node.data.config || {}), [key]: value } },
+        }
         : node
     )))
   }
@@ -738,28 +1130,221 @@ function AutomationPlaygroundContent() {
   }
 
   const duplicateSelectedNode = () => {
-    if (!selectedNode) return
-    const duplicate = {
-      ...selectedNode,
-      id: `${selectedNode.data.key}-${Date.now()}`,
-      position: { x: selectedNode.position.x + 60, y: selectedNode.position.y + 60 },
-      selected: false,
-      data: {
-        ...selectedNode.data,
-        label: `${selectedNode.data.label} copy`,
-        status: 'draft',
-      },
-    }
-    setNodes((current) => [...current, duplicate])
-    setSelectedNodeId(duplicate.id)
+    duplicateSelectedItems()
   }
 
   const deleteSelectedNode = () => {
-    if (!selectedNode) return
-    const nodeId = selectedNode.id
-    setNodes((current) => current.filter((node) => node.id !== nodeId))
-    setEdges((current) => current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId))
+    deleteSelectedItems()
+  }
+
+  const deleteSelectedEdge = () => {
+    if (!selectedEdgeId) return
+    setEdges((current) => current.filter((edge) => edge.id !== selectedEdgeId))
+    setSelectedEdgeId(null)
+    setSelectedEdgeIds([])
+    notify('success', 'Connection deleted.')
+  }
+
+  const addCommentForSelection = (sourceNodes = selectedNodes) => {
+    const bounds = sourceNodes.length ? boundsForNodes(sourceNodes, 0) : { x: 120, y: 120, width: 260, height: 120 }
+    const definition = definitions.find((item) => item.key === 'sticky_note') || BASE_NODE_DEFINITIONS.find((item) => item.key === 'sticky_note')
+    const note = createNode(definition, nodes.length, {
+      id: `sticky-note-${Date.now()}`,
+      position: { x: bounds.x + bounds.width + 40, y: bounds.y },
+      style: { width: 280, height: 180 },
+      zIndex: 5,
+      config: {
+        comment: sourceNodes.length > 1 ? `Comment for ${sourceNodes.length} selected workflow steps.` : 'Add workflow context, a TODO, or a handoff note.',
+      },
+    })
+
+    setNodes((current) => [...current, note])
+    setSelectedNodeId(note.id)
+    setSelectedNodeIds([note.id])
+    setInspectorOpen(true)
+    setInspectorCollapsed(false)
+    notify('success', 'Comment added.')
+  }
+
+  const addBackgroundForSelection = (sourceNodes = selectedNodes) => {
+    const targets = sourceNodes.filter((node) => node.data?.key !== 'group_background')
+    if (targets.length < 2) {
+      notify('error', 'Select at least two workflow items to create a background.')
+      return
+    }
+
+    const bounds = boundsForNodes(targets, 44)
+    const definition = definitions.find((item) => item.key === 'group_background') || BASE_NODE_DEFINITIONS.find((item) => item.key === 'group_background')
+    const memberIds = targets.map((node) => node.id)
+    const group = createNode(definition, nodes.length, {
+      id: `section-background-${Date.now()}`,
+      label: 'Workflow section',
+      position: { x: bounds.x, y: bounds.y },
+      style: { width: bounds.width, height: bounds.height },
+      zIndex: -20,
+      config: {
+        color: 'sky',
+        comment: `Groups ${targets.length} workflow items. Move this background to move unselected member nodes with it.`,
+        member_ids: memberIds,
+      },
+    })
+
+    setNodes((current) => [
+      group,
+      ...current.map((node) => (
+        memberIds.includes(node.id)
+          ? { ...node, data: { ...node.data, config: { ...(node.data.config || {}), group_id: group.id } } }
+          : node
+      )),
+    ])
+    setSelectedNodeId(group.id)
+    setSelectedNodeIds([group.id])
+    setInspectorOpen(true)
+    setInspectorCollapsed(false)
+    notify('success', 'Background added around selection.')
+  }
+
+  const duplicateSelectedItems = (sourceNodes = selectedNodes) => {
+    const nodesToCopy = sourceNodes.length ? sourceNodes : selectedNode ? [selectedNode] : []
+    if (!nodesToCopy.length && selectedEdgeIds.length === 0) return
+
+    const stamp = Date.now()
+    const idMap = new Map(nodesToCopy.map((node, index) => [node.id, `${node.data.key}-${stamp}-${index + 1}`]))
+    const duplicates = nodesToCopy.map((node) => {
+      const nextId = idMap.get(node.id)
+      const memberIds = Array.isArray(node.data?.config?.member_ids)
+        ? node.data.config.member_ids.map((id) => idMap.get(id)).filter(Boolean)
+        : undefined
+      return {
+        ...node,
+        id: nextId,
+        position: { x: node.position.x + 80, y: node.position.y + 80 },
+        selected: false,
+        data: {
+          ...node.data,
+          label: `${node.data.label || 'Workflow item'} copy`,
+          status: 'draft',
+          config: {
+            ...(node.data.config || {}),
+            ...(memberIds ? { member_ids: memberIds } : {}),
+            group_id: node.data.config?.group_id && idMap.has(node.data.config.group_id) ? idMap.get(node.data.config.group_id) : undefined,
+          },
+        },
+      }
+    })
+    const duplicateEdges = edges
+      .filter((edge) => idMap.has(edge.source) && idMap.has(edge.target))
+      .map((edge) => ({
+        ...edge,
+        id: `${idMap.get(edge.source)}-${idMap.get(edge.target)}`,
+        source: idMap.get(edge.source),
+        target: idMap.get(edge.target),
+        selected: false,
+      }))
+
+    setNodes((current) => [...current, ...duplicates])
+    setEdges((current) => [...current, ...duplicateEdges])
+    setSelectedNodeId(duplicates.length === 1 ? duplicates[0].id : null)
+    setSelectedNodeIds(duplicates.map((node) => node.id))
+    setSelectedEdgeIds([])
+    notify('success', `${duplicates.length || duplicateEdges.length} item${duplicates.length + duplicateEdges.length === 1 ? '' : 's'} duplicated.`)
+  }
+
+  const deleteSelectedItems = (sourceNodeIds = selectedNodeIds) => {
+    const ids = new Set(sourceNodeIds)
+    const edgeIds = new Set(selectedEdgeIds.length ? selectedEdgeIds : selectedEdgeId ? [selectedEdgeId] : [])
+    if (ids.size === 0 && edgeIds.size === 0) return
+
+    setNodes((current) => current
+      .filter((node) => !ids.has(node.id))
+      .map((node) => {
+        const config = node.data?.config || {}
+        if (!config.group_id && !Array.isArray(config.member_ids)) return node
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            config: {
+              ...config,
+              group_id: ids.has(config.group_id) ? undefined : config.group_id,
+              member_ids: Array.isArray(config.member_ids) ? config.member_ids.filter((id) => !ids.has(id)) : config.member_ids,
+            },
+          },
+        }
+      }))
+    setEdges((current) => current.filter((edge) => !edgeIds.has(edge.id) && !ids.has(edge.source) && !ids.has(edge.target)))
     setSelectedNodeId(null)
+    setSelectedNodeIds([])
+    setSelectedEdgeId(null)
+    setSelectedEdgeIds([])
+    setInspectorOpen(false)
+    notify('success', 'Selection deleted.')
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (!['Delete', 'Backspace'].includes(event.key) || isEditableShortcutTarget(event.target)) return
+      if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0 && !selectedEdgeId) return
+
+      event.preventDefault()
+      deleteSelectedItems()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [deleteSelectedItems, selectedEdgeId, selectedEdgeIds.length, selectedNodeIds.length])
+
+  const autoLayoutSelection = (sourceNodes = selectedNodes) => {
+    const targets = sourceNodes.filter((node) => !isCanvasElement(node))
+    if (targets.length < 2) {
+      notify('error', 'Select at least two workflow nodes to align.')
+      return
+    }
+    const bounds = boundsForNodes(targets, 0)
+    const ordered = [...targets].sort((a, b) => workflowOrder(a.data.category) - workflowOrder(b.data.category))
+    const ids = new Set(ordered.map((node) => node.id))
+    setNodes((current) => current.map((node) => {
+      if (!ids.has(node.id)) return node
+      const index = ordered.findIndex((item) => item.id === node.id)
+      return {
+        ...node,
+        position: {
+          x: bounds.x + index * 290,
+          y: bounds.y + (index % 2) * 115,
+        },
+      }
+    }))
+    notify('success', 'Selection aligned.')
+  }
+
+  const toggleSelectedCanvasLocks = (sourceNodes = selectedNodes) => {
+    const canvasNodes = sourceNodes.filter(isCanvasElement)
+    if (!canvasNodes.length) return
+    const shouldLock = canvasNodes.some((node) => !node.data?.config?.locked)
+    const ids = new Set(canvasNodes.map((node) => node.id))
+    setNodes((current) => current.map((node) => (
+      ids.has(node.id)
+        ? { ...node, draggable: !shouldLock, data: { ...node.data, config: { ...(node.data.config || {}), locked: shouldLock } } }
+        : node
+    )))
+    notify('success', shouldLock ? 'Canvas item locked.' : 'Canvas item unlocked.')
+  }
+
+  const ungroupSelectedBackgrounds = (sourceNodes = selectedNodes) => {
+    const groupIds = sourceNodes.filter((node) => node.data?.key === 'group_background').map((node) => node.id)
+    if (!groupIds.length) return
+    const groupSet = new Set(groupIds)
+    setNodes((current) => current
+      .filter((node) => !groupSet.has(node.id))
+      .map((node) => (
+        groupSet.has(node.data?.config?.group_id)
+          ? { ...node, data: { ...node.data, config: { ...(node.data.config || {}), group_id: undefined } } }
+          : node
+      )))
+    setSelectedNodeId(null)
+    setSelectedNodeIds([])
+    setInspectorOpen(false)
+    notify('success', 'Background removed; workflow nodes kept.')
   }
 
   const testSelectedNode = () => {
@@ -774,10 +1359,50 @@ function AutomationPlaygroundContent() {
     notify(errors.length ? 'error' : 'success', errors.length ? errors[0] : 'Node test passed.')
   }
 
+  const openInspector = (nodeId = null) => {
+    setSelectedNodeId(nodeId)
+    setSelectedNodeIds(nodeId ? [nodeId] : [])
+    setInspectorOpen(true)
+    setInspectorCollapsed(false)
+  }
+
+  const beginInspectorDrag = useCallback((event) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const bounds = builderRef.current?.getBoundingClientRect()
+    const startX = event.clientX
+    const startY = event.clientY
+    const start = inspectorPosition
+    const panelWidth = inspectorCollapsed ? 288 : 390
+    const panelHeight = inspectorCollapsed ? 58 : 620
+
+    const onMove = (moveEvent) => {
+      const width = bounds?.width || window.innerWidth
+      const height = bounds?.height || window.innerHeight
+      const maxRight = Math.max(16, width - panelWidth - 16)
+      const maxTop = Math.max(16, height - Math.min(panelHeight, height - 32) - 16)
+
+      setInspectorPosition({
+        right: clamp(start.right - (moveEvent.clientX - startX), 16, maxRight),
+        top: clamp(start.top + (moveEvent.clientY - startY), 16, maxTop),
+      })
+    }
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }, [inspectorCollapsed, inspectorPosition])
+
   const autoLayout = () => {
-    const ordered = [...nodes].sort((a, b) => workflowOrder(a.data.category) - workflowOrder(b.data.category))
+    const workflowNodes = nodes.filter((node) => !isCanvasElement(node))
+    const canvasNodes = nodes.filter(isCanvasElement)
+    const ordered = [...workflowNodes].sort((a, b) => workflowOrder(a.data.category) - workflowOrder(b.data.category))
     const counts = {}
-    setNodes(ordered.map((node) => {
+    const layoutNodes = ordered.map((node) => {
       const column = workflowOrder(node.data.category)
       counts[column] = (counts[column] || 0) + 1
       return {
@@ -787,17 +1412,24 @@ function AutomationPlaygroundContent() {
           y: 80 + (counts[column] - 1) * 150,
         },
       }
-    }))
+    })
+    setNodes([...canvasNodes, ...layoutNodes])
   }
 
   const saveWorkflow = async () => {
     if (!automation) return
+    if (hasUploadingWorkflowMedia(nodes)) {
+      notify('error', 'Please wait for workflow image uploads to finish.')
+      return
+    }
+
     setSaving(true)
     try {
       const sanitizedNodes = sanitizeNodes(nodes)
       const sanitizedEdges = sanitizeEdges(edges, sanitizedNodes)
       const socialAccountIds = collectAccountIds(sanitizedNodes, settings)
       const feedUrls = collectFeedUrls(sanitizedNodes, settings)
+      const schedule = normalizeScheduleSettings(settings.schedule)
       const payload = {
         name: settings.name,
         description: settings.description,
@@ -811,7 +1443,8 @@ function AutomationPlaygroundContent() {
           description: settings.description,
           builder_version: BUILDER_VERSION,
           category: settings.category,
-          interval_minutes: Number(settings.interval_minutes) || 30,
+          interval_minutes: scheduleIntervalMinutes(schedule),
+          schedule,
           safety: settings.safety,
           workflow: {
             nodes: sanitizedNodes,
@@ -836,10 +1469,10 @@ function AutomationPlaygroundContent() {
     if (!automation) return
     setRunning(true)
     try {
-      await api.post(`/automations/${automation.id}/run`)
-      notify('success', 'Automation run queued.')
+      const { data } = await api.post(`/automations/${automation.id}/run`)
+      notify('success', data.message || 'Automation run started.')
     } catch (error) {
-      notify('error', error.response?.data?.message || 'Could not queue automation.')
+      notify('error', error.response?.data?.message || 'Could not start automation.')
     } finally {
       setRunning(false)
     }
@@ -879,34 +1512,32 @@ function AutomationPlaygroundContent() {
   }
 
   return (
-    <div className="fixed bottom-0 right-0 top-16 z-10 overflow-hidden bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-white" style={{ left: canvasLeft }}>
-      <div className="grid h-full min-w-0 grid-cols-[320px_minmax(0,1fr)_390px] overflow-hidden">
-        <NodePalette
-          accounts={accounts}
-          category={category}
-          definitions={definitions}
-          onAddNode={addNodeFromDefinition}
-          onApplyTemplate={applyTemplate}
-          search={search}
-          setCategory={setCategory}
-          setSearch={setSearch}
-          templates={TEMPLATE_DEFINITIONS}
-        />
-
-        <main className="relative min-w-0 border-x border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+    <div ref={builderRef} className="fixed bottom-0 right-0 top-16 z-10 overflow-hidden bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-white" style={{ left: canvasLeft }}>
+      <div className="h-full min-w-0 overflow-hidden">
+        <main className="relative h-full min-w-0 bg-white dark:bg-slate-950">
           <BuilderToolbar
+            accounts={accounts}
             automation={automation}
+            category={category}
             checks={checks}
             connectedAccounts={connectedAccounts}
+            definitions={definitions}
             edgeCount={edges.length}
             nodeCount={nodes.length}
+            onAddNode={addNodeFromDefinition}
             onAutoLayout={autoLayout}
             onExport={exportWorkflow}
+            onOpenInspector={() => openInspector(null)}
+            onApplyTemplate={applyTemplate}
             onRun={runWorkflow}
             onSave={saveWorkflow}
             running={running}
             saving={saving}
+            search={search}
+            setCategory={setCategory}
+            setSearch={setSearch}
             settings={settings}
+            templates={TEMPLATE_DEFINITIONS}
           />
 
           {message && (
@@ -928,42 +1559,98 @@ function AutomationPlaygroundContent() {
             fitView
             onConnect={onConnect}
             onEdgesChange={onEdgesChange}
-            onNodesChange={onNodesChange}
-            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-            onPaneClick={() => setSelectedNodeId(null)}
+            onNodesChange={handleNodesChange}
+            onSelectionChange={handleSelectionChange}
+            deleteKeyCode={null}
+            multiSelectionKeyCode={['Shift', 'Control', 'Meta']}
+            selectionKeyCode="Shift"
+            onEdgeClick={(_, edge) => {
+              setSelectedEdgeId(edge.id)
+              setSelectedEdgeIds([edge.id])
+              setSelectedNodeId(null)
+              setSelectedNodeIds([])
+            }}
+            onNodeClick={(event, node) => {
+              if (event.shiftKey || event.ctrlKey || event.metaKey) {
+                setInspectorOpen(false)
+                return
+              }
+              setSelectedEdgeId(null)
+              setSelectedEdgeIds([])
+              openInspector(node.id)
+            }}
+            onPaneClick={() => {
+              setSelectedNodeId(null)
+              setSelectedNodeIds([])
+              setSelectedEdgeId(null)
+              setSelectedEdgeIds([])
+            }}
           >
             <Background color="#94a3b8" gap={18} size={1} />
             <MiniMap pannable zoomable nodeStrokeWidth={3} className="!rounded-lg !border !border-slate-200 !bg-white dark:!border-slate-800 dark:!bg-slate-900" />
             <Controls className="!rounded-lg !border !border-slate-200 !bg-white !shadow-sm dark:!border-slate-800 dark:!bg-slate-900" />
           </ReactFlow>
-        </main>
 
-        <InspectorPanel
-          accounts={accounts}
-          checks={checks}
-          definitions={definitions}
-          edges={edges}
-          onDeleteNode={deleteSelectedNode}
-          onDuplicateNode={duplicateSelectedNode}
-          onRenameNode={renameNode}
-          onSettingsChange={setSettings}
-          onTestNode={testSelectedNode}
-          onUpdateNodeConfig={updateNodeConfig}
-          selectedNode={selectedNode}
-          settings={settings}
-        />
+          <ConnectionToolbar
+            edge={edges.find((edge) => edge.id === selectedEdgeId)}
+            nodes={nodes}
+            onDelete={deleteSelectedEdge}
+          />
+
+          <SelectionActionBar
+            selectedEdges={selectedEdgeIds.length}
+            selectedNodes={selectedNodes}
+            onAddBackground={addBackgroundForSelection}
+            onAddComment={addCommentForSelection}
+            onAlign={autoLayoutSelection}
+            onDelete={deleteSelectedItems}
+            onDuplicate={duplicateSelectedItems}
+            onToggleLock={toggleSelectedCanvasLocks}
+            onUngroup={ungroupSelectedBackgrounds}
+          />
+
+          <FloatingInspectorPanel
+            collapsed={inspectorCollapsed}
+            onClose={() => setInspectorOpen(false)}
+            onDragStart={beginInspectorDrag}
+            onToggleCollapsed={() => setInspectorCollapsed((value) => !value)}
+            open={inspectorOpen}
+            position={inspectorPosition}
+            subtitle={selectedNode ? 'Step configuration' : 'Workflow controls'}
+            title={selectedNode?.data?.label || 'Automation details'}
+          >
+            <InspectorPanel
+              accounts={accounts}
+              checks={checks}
+              definitions={definitions}
+              edges={edges}
+              onDeleteNode={deleteSelectedNode}
+              onDuplicateNode={duplicateSelectedNode}
+              onRenameNode={renameNode}
+              onSettingsChange={setSettings}
+              onTestNode={testSelectedNode}
+              onUpdateNodeConfig={updateNodeConfig}
+              selectedNode={selectedNode}
+              settings={settings}
+            />
+          </FloatingInspectorPanel>
+        </main>
       </div>
     </div>
   )
 }
 
-function NodePalette({ accounts, category, definitions, onAddNode, onApplyTemplate, search, setCategory, setSearch, templates }) {
+function NodePalette({ accounts, compact = false, definitions, onAddNode, onApplyTemplate, search, setSearch, templates }) {
+  const [mode, setMode] = useState('all')
   const activeAccounts = accounts.filter(isUsableAccount)
   const query = search.trim().toLowerCase()
   const visibleDefinitions = definitions.filter((definition) => {
-    if (category !== 'all' && definition.category !== category) return false
     if (!query) return true
     return [definition.label, definition.description, definition.category, definition.platformLabel].filter(Boolean).join(' ').toLowerCase().includes(query)
+  })
+  const visibleTemplates = templates.filter((template) => {
+    if (!query) return true
+    return [template.name, template.description, template.category, template.complexity, template.outcome, ...(template.nodes || [])].filter(Boolean).join(' ').toLowerCase().includes(query)
   })
 
   const grouped = CATEGORY_ORDER.map((group) => ({
@@ -972,16 +1659,11 @@ function NodePalette({ accounts, category, definitions, onAddNode, onApplyTempla
   })).filter((item) => item.nodes.length)
 
   return (
-    <aside className="flex min-h-0 flex-col bg-slate-100/80 dark:bg-slate-950">
-      <div className="border-b border-slate-200 p-4 dark:border-slate-800">
-        <div className="flex items-center gap-3">
-          <Link to="/app/automations" className="rounded-lg p-2 text-slate-500 transition hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white" aria-label="Back to automations">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold text-slate-950 dark:text-white">Social workflow</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{activeAccounts.length} connected publish targets</p>
-          </div>
+    <aside className={clsx('flex min-h-0 flex-col', compact ? 'h-full bg-white dark:bg-slate-900' : 'bg-slate-100/80 dark:bg-slate-950')}>
+      <div className={clsx('border-b border-slate-200 dark:border-slate-800', compact ? 'p-3' : 'p-4')}>
+        <div className="min-w-0">
+          <h1 className={clsx('truncate font-bold text-slate-950 dark:text-white', compact ? 'text-base' : 'text-lg')}>Workflow library</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{activeAccounts.length} connected publish targets</p>
         </div>
 
         <label className="relative mt-4 block">
@@ -999,16 +1681,16 @@ function NodePalette({ accounts, category, definitions, onAddNode, onApplyTempla
           )}
         </label>
 
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          <CategoryChip active={category === 'all'} label="All" onClick={() => setCategory('all')} />
-          {CATEGORY_ORDER.map((item) => (
-            <CategoryChip key={item} active={category === item} label={shortCategoryLabel(item)} onClick={() => setCategory(item)} />
-          ))}
+        <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-950/60">
+          <CategoryChip active={mode === 'all'} label="All" onClick={() => setMode('all')} />
+          <CategoryChip active={mode === 'template'} label="Template" onClick={() => setMode('template')} />
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {grouped.length === 0 ? (
+      <div className={clsx('min-h-0 flex-1 overflow-y-auto', compact ? 'p-3' : 'p-3')}>
+        {mode === 'template' ? (
+          <TemplateRail templates={visibleTemplates} onApplyTemplate={onApplyTemplate} embedded />
+        ) : grouped.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
             No matching nodes.
           </div>
@@ -1029,8 +1711,6 @@ function NodePalette({ accounts, category, definitions, onAddNode, onApplyTempla
           )
         })}
       </div>
-
-      <TemplateRail templates={templates} onApplyTemplate={onApplyTemplate} />
     </aside>
   )
 }
@@ -1072,14 +1752,14 @@ function PaletteNodeButton({ definition, onClick }) {
   )
 }
 
-function TemplateRail({ templates, onApplyTemplate }) {
+function TemplateRail({ templates, onApplyTemplate, embedded = false }) {
   return (
-    <div className="border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+    <div className={clsx(!embedded && 'border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900', embedded && 'space-y-3')}>
       <div className="mb-2 flex items-center gap-2 px-1">
         <FileJson className="h-4 w-4 text-slate-500 dark:text-slate-400" />
         <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Templates</h2>
       </div>
-      <div className="grid max-h-52 gap-2 overflow-y-auto pr-1">
+      <div className="grid max-h-[28rem] gap-2 overflow-y-auto pr-1">
         {templates.map((template) => (
           <button
             key={template.key}
@@ -1087,35 +1767,130 @@ function TemplateRail({ templates, onApplyTemplate }) {
             onClick={() => onApplyTemplate(template)}
             className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-brand-300 hover:bg-white dark:border-slate-800 dark:bg-slate-950/50 dark:hover:border-brand-700 dark:hover:bg-slate-900"
           >
-            <span className="block text-sm font-bold text-slate-900 dark:text-white">{template.name}</span>
-            <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">{template.description}</span>
+            <span className="flex items-start justify-between gap-3">
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-slate-900 dark:text-white">{template.name}</span>
+                <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">{template.description}</span>
+              </span>
+              <span className="shrink-0 rounded-md bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-400">
+                {template.nodes?.length || 0} steps
+              </span>
+            </span>
+            <span className="mt-3 flex flex-wrap gap-1.5">
+              {[template.category, template.complexity].filter(Boolean).map((label) => (
+                <span key={label} className="rounded-md bg-brand-50 px-2 py-1 text-[10px] font-bold text-brand-700 dark:bg-brand-950/40 dark:text-brand-300">{label}</span>
+              ))}
+            </span>
+            {template.outcome && <span className="mt-2 block text-[11px] leading-5 text-slate-500 dark:text-slate-400">{template.outcome}</span>}
           </button>
         ))}
+        {templates.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No matching templates.</div>}
       </div>
     </div>
   )
 }
 
-function BuilderToolbar({ automation, checks, connectedAccounts, edgeCount, nodeCount, onAutoLayout, onExport, onRun, onSave, running, saving, settings }) {
+function BuilderToolbar({
+  accounts,
+  automation,
+  category,
+  checks,
+  connectedAccounts,
+  definitions,
+  edgeCount,
+  nodeCount,
+  onAddNode,
+  onApplyTemplate,
+  onAutoLayout,
+  onExport,
+  onOpenInspector,
+  onRun,
+  onSave,
+  running,
+  saving,
+  search,
+  setCategory,
+  setSearch,
+  settings,
+  templates,
+}) {
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const libraryRef = useRef(null)
   const readyCount = checks.filter((check) => check.ok).length
+
+  useEffect(() => {
+    if (!libraryOpen) return undefined
+
+    const closeLibrary = (event) => {
+      if (!libraryRef.current?.contains(event.target)) setLibraryOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setLibraryOpen(false)
+    }
+
+    document.addEventListener('mousedown', closeLibrary)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeLibrary)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [libraryOpen])
+
+  const addNode = (definition) => {
+    onAddNode(definition)
+    setLibraryOpen(false)
+  }
+
+  const applyTemplate = (template) => {
+    onApplyTemplate(template)
+    setLibraryOpen(false)
+  }
+
   return (
     <div className="absolute left-0 right-0 top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
       <div className="flex min-w-0 items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <Workflow className="h-5 w-5 shrink-0 text-brand-500" />
-            <h2 className="truncate text-lg font-bold text-slate-950 dark:text-white">{settings.name || automation.name}</h2>
-            <Badge color={settings.is_active ? 'emerald' : 'gray'}>{settings.is_active ? 'Active' : 'Paused'}</Badge>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <span>{nodeCount} nodes</span>
-            <span>{edgeCount} links</span>
-            <span>{connectedAccounts.length} accounts</span>
-            <span>{readyCount}/{checks.length} readiness checks</span>
+        <div className="flex min-w-0 items-center gap-3">
+          <Link to="/app/automations" className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white" aria-label="Back to automations">
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <Workflow className="h-5 w-5 shrink-0 text-brand-500" />
+              <h2 className="truncate text-lg font-bold text-slate-950 dark:text-white">{settings.name || automation.name}</h2>
+              <Badge color={settings.is_active ? 'emerald' : 'gray'}>{settings.is_active ? 'Active' : 'Paused'}</Badge>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span>{nodeCount} nodes</span>
+              <span>{edgeCount} links</span>
+              <span>{connectedAccounts.length} accounts</span>
+              <span>{readyCount}/{checks.length} readiness checks</span>
+            </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <div className="relative" ref={libraryRef}>
+            <Button type="button" variant="secondary" onClick={() => setLibraryOpen((value) => !value)}>
+              <Plus className="h-4 w-4" /> Add workflow <ChevronDown className={clsx('h-4 w-4 transition', libraryOpen && 'rotate-180')} />
+            </Button>
+            {libraryOpen && (
+              <div className="absolute right-0 top-full z-40 mt-3 h-[min(720px,calc(100vh-8rem))] w-[min(92vw,360px)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                <NodePalette
+                  accounts={accounts}
+                  category={category}
+                  compact
+                  definitions={definitions}
+                  onAddNode={addNode}
+                  onApplyTemplate={applyTemplate}
+                  search={search}
+                  setCategory={setCategory}
+                  setSearch={setSearch}
+                  templates={templates}
+                />
+              </div>
+            )}
+          </div>
           <IconButton label="Auto layout" onClick={onAutoLayout} icon={RefreshCw} />
+          <IconButton label="Automation details" onClick={onOpenInspector} icon={Settings2} />
           <IconButton label="Export JSON" onClick={onExport} icon={Download} />
           <Button type="button" variant="secondary" onClick={onRun} loading={running}><Play className="h-4 w-4" /> Run now</Button>
           <Button type="button" onClick={onSave} loading={saving}><Save className="h-4 w-4" /> Save workflow</Button>
@@ -1139,6 +1914,147 @@ function IconButton({ icon: Icon, label, onClick }) {
   )
 }
 
+function FloatingInspectorPanel({ children, collapsed, onClose, onDragStart, onToggleCollapsed, open, position, subtitle, title }) {
+  if (!open) return null
+
+  return (
+    <section
+      className={clsx(
+        'absolute z-30 flex w-[min(390px,calc(100%-2rem))] max-h-[calc(100%-2rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900',
+        collapsed ? 'h-auto' : 'h-[min(650px,calc(100%-2rem))]',
+      )}
+      style={{ top: position.top, right: position.right }}
+      aria-label="Automation details"
+    >
+      <div className="flex cursor-move items-center gap-3 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900" onPointerDown={onDragStart}>
+        <GripVertical className="h-4 w-4 shrink-0 text-slate-400" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{subtitle}</p>
+          <h2 className="truncate text-sm font-bold text-slate-950 dark:text-white">{title}</h2>
+        </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggleCollapsed()
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+          aria-label={collapsed ? 'Expand details panel' : 'Minimize details panel'}
+          title={collapsed ? 'Expand details panel' : 'Minimize details panel'}
+        >
+          {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            onClose()
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+          aria-label="Close details panel"
+          title="Close details panel"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      {!collapsed && <div className="min-h-0 flex-1 overflow-hidden">{children}</div>}
+    </section>
+  )
+}
+
+function ConnectionToolbar({ edge, nodes, onDelete }) {
+  if (!edge) return null
+
+  const source = nodes.find((node) => node.id === edge.source)
+  const target = nodes.find((node) => node.id === edge.target)
+
+  return (
+    <div className="absolute left-1/2 top-24 z-30 w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+          <GitBranch className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Selected connection</p>
+          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+            {source?.data?.label || 'Source'} to {target?.data?.label || 'Target'}
+          </p>
+        </div>
+        <Button type="button" variant="danger" size="sm" onClick={onDelete}><Trash2 className="h-4 w-4" /> Delete</Button>
+      </div>
+    </div>
+  )
+}
+
+function SelectionActionBar({ onAddBackground, onAddComment, onAlign, onDelete, onDuplicate, onToggleLock, onUngroup, selectedEdges, selectedNodes }) {
+  const selectedCount = selectedNodes.length
+  if (selectedCount === 0) return null
+
+  const canvasNodes = selectedNodes.filter(isCanvasElement)
+  const groupCount = selectedNodes.filter((node) => node.data?.key === 'group_background').length
+  const workflowCount = selectedNodes.filter((node) => !isCanvasElement(node)).length
+  const canGroup = selectedNodes.filter((node) => node.data?.key !== 'group_background').length >= 2
+  const canAlign = workflowCount >= 2
+  const selectedNodeIds = selectedNodes.map((node) => node.id)
+  const lockLabel = canvasNodes.some((node) => !node.data?.config?.locked) ? 'Lock' : 'Unlock'
+  const LockIcon = lockLabel === 'Lock' ? Lock : LockOpen
+
+  return (
+    <div
+      className="nodrag nopan absolute left-12 right-4 top-24 z-30 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-800 dark:bg-slate-900 lg:right-[420px]"
+      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600 dark:bg-slate-950 dark:text-slate-300">
+          <SquareDashedMousePointer className="h-4 w-4" />
+          {selectedCount} selected
+        </div>
+        <SelectionToolButton icon={Group} label="Background" disabled={!canGroup} onClick={() => onAddBackground(selectedNodes)} />
+        <SelectionToolButton icon={StickyNote} label="Comment" onClick={() => onAddComment(selectedNodes)} />
+        <SelectionToolButton icon={MousePointer2} label="Align" disabled={!canAlign} onClick={() => onAlign(selectedNodes)} />
+        <SelectionToolButton icon={Copy} label="Duplicate" onClick={() => onDuplicate(selectedNodes)} />
+        {canvasNodes.length > 0 && <SelectionToolButton icon={LockIcon} label={lockLabel} onClick={() => onToggleLock(selectedNodes)} />}
+        {groupCount > 0 && <SelectionToolButton icon={Ungroup} label="Ungroup" onClick={() => onUngroup(selectedNodes)} />}
+        <SelectionToolButton danger icon={Trash2} label="Delete" onClick={() => onDelete(selectedNodeIds)} />
+      </div>
+    </div>
+  )
+}
+
+function SelectionToolButton({ danger = false, disabled = false, icon: Icon, label, onClick }) {
+  const runAction = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!disabled) onClick?.()
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onPointerDown={runAction}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+      className={clsx(
+        'nodrag nopan inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold transition',
+        danger
+          ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-300'
+          : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-brand-800 dark:hover:bg-brand-950/30 dark:hover:text-brand-300',
+        disabled && 'cursor-not-allowed opacity-45 hover:border-slate-200 hover:bg-white hover:text-slate-700 dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200',
+      )}
+      title={disabled ? `${label} requires more workflow nodes` : label}
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </button>
+  )
+}
+
 function InspectorPanel({
   accounts,
   checks,
@@ -1154,7 +2070,7 @@ function InspectorPanel({
   settings,
 }) {
   return (
-    <aside className="flex min-h-0 flex-col bg-slate-100/80 dark:bg-slate-950">
+    <aside className="flex h-full min-h-0 flex-col bg-slate-100/80 dark:bg-slate-950">
       {selectedNode ? (
         <SelectedNodeInspector
           accounts={accounts}
@@ -1175,59 +2091,55 @@ function InspectorPanel({
 }
 
 function SelectedNodeInspector({ accounts, definition, edges, node, onDelete, onDuplicate, onRename, onTest, onUpdate }) {
-  const incoming = edges.filter((edge) => edge.target === node.id).length
-  const outgoing = edges.filter((edge) => edge.source === node.id).length
   const errors = missingRequiredFields(definition, node, accounts)
+  const customInspector = ['delay_wait_until', 'send_notification', 'group_background', 'sticky_note'].includes(node.data.key)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Node settings</p>
-            <h2 className="mt-1 truncate text-lg font-bold text-slate-950 dark:text-white">{node.data.label}</h2>
-          </div>
-          <StatusPill status={node.data.status} />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <span className="rounded-lg bg-slate-100 px-2 py-1 dark:bg-slate-800">{incoming} in</span>
-          <span className="rounded-lg bg-slate-100 px-2 py-1 dark:bg-slate-800">{outgoing} out</span>
-          <span className="rounded-lg bg-slate-100 px-2 py-1 dark:bg-slate-800">{node.data.category}</span>
-        </div>
-      </div>
-
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         <Input label="Node name" value={node.data.label || ''} onChange={(event) => onRename(node.id, event.target.value)} />
 
-        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center gap-2">
-            <Settings2 className="h-4 w-4 text-brand-500" />
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Configuration</h3>
-          </div>
-          {(definition.fields || []).length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">This node has no required settings.</p>
-          ) : (
-            definition.fields.map((field) => (
-              <FieldRenderer
-                key={field.key}
-                accounts={accounts}
-                field={field}
-                node={node}
-                onChange={(value) => onUpdate(node.id, field.key, value)}
-              />
-            ))
-          )}
-        </section>
+        {node.data.key === 'create_post' ? (
+          <CreatePostSettings node={node} onUpdate={(key, value) => onUpdate(node.id, key, value)} />
+        ) : node.data.key === 'delay_wait_until' ? (
+          <DelayWaitSettings node={node} onUpdate={(key, value) => onUpdate(node.id, key, value)} />
+        ) : node.data.key === 'send_notification' ? (
+          <NotificationSettings node={node} onUpdate={(key, value) => onUpdate(node.id, key, value)} />
+        ) : isCanvasElement(node) ? (
+          <CanvasAnnotationSettings node={node} onUpdate={(key, value) => onUpdate(node.id, key, value)} />
+        ) : (
+          <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4 text-brand-500" />
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Configuration</h3>
+            </div>
+            {(definition.fields || []).length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">This node has no required settings.</p>
+            ) : (
+              definition.fields.map((field) => (
+                <FieldRenderer
+                  key={field.key}
+                  accounts={accounts}
+                  field={field}
+                  node={node}
+                  onChange={(value) => onUpdate(node.id, field.key, value)}
+                />
+              ))
+            )}
+          </section>
+        )}
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center gap-2">
-            <Eye className="h-4 w-4 text-brand-500" />
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Output preview</h3>
-          </div>
-          <pre className="mt-3 max-h-44 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100">
-            {JSON.stringify(previewNodeOutput(node), null, 2)}
-          </pre>
-        </section>
+        {!customInspector && (
+          <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-center gap-2">
+              <Eye className="h-4 w-4 text-brand-500" />
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Output preview</h3>
+            </div>
+            <pre className="mt-3 max-h-44 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+              {JSON.stringify(previewNodeOutput(node), null, 2)}
+            </pre>
+          </section>
+        )}
 
         {errors.length > 0 && (
           <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
@@ -1239,8 +2151,8 @@ function SelectedNodeInspector({ accounts, definition, edges, node, onDelete, on
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-2 border-t border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <Button type="button" variant="secondary" size="sm" onClick={onTest}><Check className="h-4 w-4" /> Test</Button>
+      <div className={clsx('grid gap-2 border-t border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900', isCanvasElement(node) ? 'grid-cols-2' : 'grid-cols-3')}>
+        {!isCanvasElement(node) && <Button type="button" variant="secondary" size="sm" onClick={onTest}><Check className="h-4 w-4" /> Test</Button>}
         <Button type="button" variant="secondary" size="sm" onClick={onDuplicate}><Copy className="h-4 w-4" /> Copy</Button>
         <Button type="button" variant="danger" size="sm" onClick={onDelete}><Trash2 className="h-4 w-4" /> Delete</Button>
       </div>
@@ -1251,6 +2163,12 @@ function SelectedNodeInspector({ accounts, definition, edges, node, onDelete, on
 function WorkflowInspector({ checks, onSettingsChange, settings }) {
   const update = (key, value) => onSettingsChange((current) => ({ ...current, [key]: value }))
   const updateSafety = (key, value) => onSettingsChange((current) => ({ ...current, safety: { ...(current.safety || {}), [key]: value } }))
+  const updateSchedule = (key, value) => onSettingsChange((current) => ({
+    ...current,
+    schedule: normalizeScheduleSettings({ ...(current.schedule || defaultScheduleSettings()), [key]: value }),
+    interval_minutes: key === 'interval_minutes' ? Number(value) || current.interval_minutes : current.interval_minutes,
+  }))
+  const schedule = normalizeScheduleSettings(settings.schedule)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1306,9 +2224,476 @@ function WorkflowInspector({ checks, onSettingsChange, settings }) {
           ))}
         </section>
 
+        <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center gap-2">
+            <Clock3 className="h-4 w-4 text-brand-500" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Automation schedule</h3>
+          </div>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Run cadence</span>
+            <select value={schedule.cadence} onChange={(event) => updateSchedule('cadence', event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+              <option value="hourly">Every hour</option>
+              <option value="daily">Daily at time</option>
+              <option value="weekly">Weekly at time</option>
+              <option value="interval">Every N minutes</option>
+            </select>
+          </label>
+          {schedule.cadence === 'interval' ? (
+            <Input label="Every minutes" type="number" min="5" value={schedule.interval_minutes} onChange={(event) => updateSchedule('interval_minutes', event.target.value === '' ? '' : Number(event.target.value))} />
+          ) : schedule.cadence === 'hourly' ? (
+            <Input label="Every minutes" type="number" min="15" value={schedule.interval_minutes} onChange={(event) => updateSchedule('interval_minutes', event.target.value === '' ? '' : Number(event.target.value))} />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {schedule.cadence === 'weekly' && (
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Day</span>
+                  <select value={schedule.weekday} onChange={(event) => updateSchedule('weekday', event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                    {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => <option key={day} value={day}>{day[0].toUpperCase() + day.slice(1)}</option>)}
+                  </select>
+                </label>
+              )}
+              <Input label="Time" type="time" value={schedule.time} onChange={(event) => updateSchedule('time', event.target.value)} />
+            </div>
+          )}
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Timezone</span>
+            <select value={schedule.timezone} onChange={(event) => updateSchedule('timezone', event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+              {['workspace', 'UTC', 'America/New_York', 'Europe/London', 'Asia/Dhaka'].map((zone) => <option key={zone} value={zone}>{zone === 'workspace' ? 'Workspace timezone' : zone}</option>)}
+            </select>
+          </label>
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 dark:bg-slate-950/60 dark:text-slate-400">
+            Next runs follow this schedule when the automation is active and the server scheduler is running.
+          </p>
+        </section>
+
         <ReadinessPanel checks={checks} />
       </div>
     </div>
+  )
+}
+
+function CreatePostSettings({ node, onUpdate }) {
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const config = node.data.config || {}
+  const mediaItems = normalizeWorkflowMediaItems(config.media)
+  const imageUrl = config.image_url || ''
+
+  const updateImageUrl = (value) => {
+    onUpdate('image_url', value)
+    onUpdate('media_urls', workflowMediaUrlsFromItems(mediaItems, value))
+  }
+
+  const updateMedia = (next) => {
+    const resolved = typeof next === 'function' ? next(mediaItems) : next
+    const normalized = summarizeWorkflowMediaItems(resolved)
+    const ids = workflowMediaIdsFromItems(normalized)
+    const currentImageFromMedia = mediaItems.some((item) => item.url && item.url === imageUrl)
+    const nextImageUrl = normalized[0]?.url || (currentImageFromMedia ? '' : imageUrl)
+
+    onUpdate('media', normalized)
+    onUpdate('media_ids', ids)
+    onUpdate('media_urls', workflowMediaUrlsFromItems(normalized, nextImageUrl))
+    onUpdate('image_url', nextImageUrl)
+  }
+
+  const addLibraryAssets = (assets) => {
+    updateMedia((current) => {
+      const existing = new Set(current.map((item) => item.id))
+      return [...current, ...assets.filter((asset) => !existing.has(asset.id))]
+    })
+  }
+
+  return (
+    <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <FileText className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white">Post content</h3>
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Create the caption, link, campaign, and media that the next publish step will use.</p>
+        </div>
+      </div>
+
+      <Input label="Post title" value={config.title || ''} onChange={(event) => onUpdate('title', event.target.value)} />
+      <Textarea label="Caption" rows={4} value={config.caption || ''} placeholder="Write the source caption or use {{rss.title}}." onChange={(event) => onUpdate('caption', event.target.value)} />
+
+      <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/50">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white">Image</h4>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Upload a new image or choose one from the media library.</p>
+          </div>
+          <Button type="button" size="sm" variant="secondary" onClick={() => setLibraryOpen(true)}>
+            <FolderOpen className="h-3.5 w-3.5" /> Library
+          </Button>
+        </div>
+
+        <MediaDropzone
+          items={mediaItems}
+          onChange={updateMedia}
+          accept={IMAGE_ACCEPT}
+          acceptedLabel={IMAGE_ACCEPT_LABEL}
+          multiple={false}
+          prompt="Drop an image here"
+        />
+
+        <Input label="Image URL" value={imageUrl} placeholder="https://example.com/image.jpg" onChange={(event) => updateImageUrl(event.target.value)} />
+        {imageUrl && mediaItems.length === 0 && (
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <img src={mediaUrl(imageUrl)} alt="" className="max-h-48 w-full object-contain" />
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input label="Link" value={config.link || ''} placeholder="{{rss.link}}" onChange={(event) => onUpdate('link', event.target.value)} />
+        <Input label="Campaign" value={config.campaign || ''} onChange={(event) => onUpdate('campaign', event.target.value)} />
+      </div>
+
+      <MediaLibraryPicker
+        open={libraryOpen}
+        allowedTypes={IMAGE_MEDIA_TYPES}
+        title="Image library"
+        description="Select images to attach to this workflow post."
+        existingIds={mediaItems.filter((item) => typeof item.id === 'number').map((item) => item.id)}
+        onClose={() => setLibraryOpen(false)}
+        onAdd={addLibraryAssets}
+      />
+    </section>
+  )
+}
+
+function DelayWaitSettings({ node, onUpdate }) {
+  const config = node.data.config || {}
+  const mode = config.mode || 'delay'
+  const delayValue = Number(config.delay_value ?? config.delay_minutes ?? 1)
+  const delayUnit = config.delay_unit || (config.delay_minutes ? 'minutes' : 'minutes')
+  const seconds = delayDurationSeconds(delayValue, delayUnit)
+
+  const setMode = (nextMode) => {
+    onUpdate('mode', nextMode)
+    if (nextMode === 'wait_until' && !config.wait_until) onUpdate('wait_until', '{{post.scheduled_at}}')
+  }
+
+  return (
+    <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+          <Timer className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white">Timing rule</h3>
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Pause the workflow for a duration or until a date field is reached.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-950/60">
+        <button
+          type="button"
+          onClick={() => setMode('delay')}
+          className={clsx('rounded-lg px-3 py-2 text-sm font-bold transition', mode === 'delay' ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-800 dark:text-brand-300' : 'text-slate-500 hover:bg-white dark:text-slate-400 dark:hover:bg-slate-800')}
+        >
+          Fixed delay
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('wait_until')}
+          className={clsx('rounded-lg px-3 py-2 text-sm font-bold transition', mode === 'wait_until' ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-800 dark:text-brand-300' : 'text-slate-500 hover:bg-white dark:text-slate-400 dark:hover:bg-slate-800')}
+        >
+          Wait until
+        </button>
+      </div>
+
+      {mode === 'delay' ? (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
+            <Input label="Duration" type="number" min="1" value={delayValue || ''} onChange={(event) => onUpdate('delay_value', event.target.value === '' ? '' : Number(event.target.value))} />
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Unit</span>
+              <select value={delayUnit} onChange={(event) => onUpdate('delay_unit', event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                {[
+                  ['seconds', 'Seconds'],
+                  ['minutes', 'Minutes'],
+                  ['hours', 'Hours'],
+                  ['days', 'Days'],
+                ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              [30, 'seconds', '30s'],
+              [1, 'minutes', '1m'],
+              [15, 'minutes', '15m'],
+              [1, 'hours', '1h'],
+            ].map(([value, unit, label]) => (
+              <button
+                key={`${value}-${unit}`}
+                type="button"
+                onClick={() => {
+                  onUpdate('delay_value', value)
+                  onUpdate('delay_unit', unit)
+                }}
+                className="rounded-lg border border-slate-200 px-2 py-2 text-xs font-bold text-slate-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-brand-800 dark:hover:bg-brand-950/30"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 dark:bg-slate-950/60 dark:text-slate-400">
+            This workflow will continue after {formatDelayPreview(seconds)}.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <Input label="Wait until date/time field" value={config.wait_until || ''} placeholder="{{post.scheduled_at}}" onChange={(event) => onUpdate('wait_until', event.target.value)} />
+          <div className="grid gap-2 sm:grid-cols-2">
+            {[
+              ['{{post.scheduled_at}}', 'Post scheduled time'],
+              ['{{workflow.next_run_at}}', 'Next automation run'],
+              ['{{now}}', 'Current time'],
+              ['', 'Custom value'],
+            ].map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onUpdate('wait_until', value)}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-brand-800 dark:hover:bg-brand-950/30"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Input label="Maximum wait hours" type="number" min="1" value={config.max_wait_hours ?? 168} onChange={(event) => onUpdate('max_wait_hours', event.target.value === '' ? '' : Number(event.target.value))} />
+        </div>
+      )}
+    </section>
+  )
+}
+
+function NotificationSettings({ node, onUpdate }) {
+  const config = node.data.config || {}
+  const event = config.event || 'run_completed'
+  const channel = config.channel || 'in_app'
+  const audience = config.audience || 'automation_owner'
+  const priority = config.priority || 'normal'
+  const eventDefinition = NOTIFICATION_EVENTS.find((item) => item.value === event) || NOTIFICATION_EVENTS[1]
+  const title = config.title ?? eventDefinition.title
+  const message = config.message ?? eventDefinition.message
+  const actionLabel = config.action_label ?? 'Open automation'
+  const includeContext = config.include_context !== false
+
+  const updateEvent = (nextEvent) => {
+    const previous = NOTIFICATION_EVENTS.find((item) => item.value === event)
+    const next = NOTIFICATION_EVENTS.find((item) => item.value === nextEvent) || NOTIFICATION_EVENTS[1]
+    const canReplaceTitle = !config.title || config.title === previous?.title
+    const canReplaceMessage = !config.message || config.message === previous?.message
+
+    onUpdate('event', next.value)
+    if (canReplaceTitle) onUpdate('title', next.title)
+    if (canReplaceMessage) onUpdate('message', next.message)
+  }
+
+  return (
+    <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
+          <BellRing className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white">Notification delivery</h3>
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Send focused workflow updates to the right people with clear priority and context.</p>
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {NOTIFICATION_CHANNELS.map((option) => {
+            const Icon = option.icon
+            const active = channel === option.value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onUpdate('channel', option.value)}
+                className={clsx(
+                  'rounded-lg border p-3 text-left transition',
+                  active ? 'border-orange-300 bg-orange-50 text-orange-800 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-200' : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-orange-200 hover:bg-white dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-300 dark:hover:border-orange-900 dark:hover:bg-slate-900',
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="mt-2 block text-xs font-bold">{option.label}</span>
+                <span className="mt-1 block text-[11px] leading-4 text-slate-500 dark:text-slate-400">{option.description}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Event template</p>
+        <div className="grid grid-cols-2 gap-2">
+          {NOTIFICATION_EVENTS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => updateEvent(option.value)}
+              className={clsx(
+                'rounded-lg border px-3 py-2 text-left text-xs font-bold transition',
+                event === option.value ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-800 dark:bg-brand-950/30 dark:text-brand-300' : 'border-slate-200 text-slate-600 hover:border-brand-200 hover:bg-brand-50/60 dark:border-slate-700 dark:text-slate-300 dark:hover:border-brand-900 dark:hover:bg-brand-950/20',
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-300"><Users className="h-3.5 w-3.5" /> Audience</span>
+          <select value={audience} onChange={(event) => onUpdate('audience', event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+            {NOTIFICATION_AUDIENCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <div>
+          <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Priority</span>
+          <div className="grid grid-cols-2 gap-1.5">
+            {NOTIFICATION_PRIORITIES.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onUpdate('priority', value)}
+                className={clsx(
+                  'rounded-lg border px-2 py-2 text-xs font-bold transition',
+                  priority === value ? notificationPriorityClass(value) : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <Input label="Title" value={title} placeholder="Workflow update: {{automation.name}}" onChange={(event) => onUpdate('title', event.target.value)} />
+      <Textarea label="Message" rows={4} value={message} placeholder="{{automation.name}} finished successfully." onChange={(event) => onUpdate('message', event.target.value)} />
+      <Input label="Action label" value={actionLabel} placeholder="Open automation" onChange={(event) => onUpdate('action_label', event.target.value)} />
+
+      <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">
+        Include workflow context
+        <input type="checkbox" checked={includeContext} onChange={(event) => onUpdate('include_context', event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+      </label>
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/60">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Variables</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {['{{automation.name}}', '{{post.id}}', '{{delay.duration}}', '{{workflow.status}}', '{{now}}'].map((token) => (
+            <button
+              key={token}
+              type="button"
+              onClick={() => onUpdate('message', `${message}${message ? ' ' : ''}${token}`)}
+              className="rounded-md bg-white px-2 py-1 text-[11px] font-mono font-semibold text-slate-600 shadow-sm transition hover:text-brand-600 dark:bg-slate-900 dark:text-slate-300"
+            >
+              {token}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 dark:border-slate-800">
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Live preview</span>
+          <span className={clsx('rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide', notificationPriorityClass(priority, true))}>{priority}</span>
+        </div>
+        <div className="flex gap-3 p-3">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
+            <BellRing className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-slate-900 dark:text-white">{notificationPreviewText(title)}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{notificationPreviewText(message)}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-400">
+              <span>{NOTIFICATION_CHANNELS.find((item) => item.value === channel)?.label || 'In app'}</span>
+              <span>{NOTIFICATION_AUDIENCES.find(([value]) => value === audience)?.[1] || 'Automation owner'}</span>
+              {actionLabel && <span className="text-brand-600 dark:text-brand-300">{actionLabel}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function CanvasAnnotationSettings({ node, onUpdate }) {
+  const config = node.data.config || {}
+  const isGroup = node.data.key === 'group_background'
+  const color = config.color || (isGroup ? 'sky' : 'amber')
+  const memberCount = Array.isArray(config.member_ids) ? config.member_ids.length : 0
+
+  return (
+    <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          {isGroup ? <Group className="h-5 w-5" /> : <StickyNote className="h-5 w-5" />}
+        </span>
+        <div>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white">{isGroup ? 'Section background' : 'Workflow comment'}</h3>
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+            {isGroup ? 'Resize and move this background to organize related workflow steps.' : 'Document decisions, warnings, TODOs, or handoff notes directly on the canvas.'}
+          </p>
+        </div>
+      </div>
+
+      {isGroup && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+          {memberCount} member node{memberCount === 1 ? '' : 's'} will move with this background when they are not selected separately.
+        </div>
+      )}
+
+      <div>
+        <div className="mb-2 flex items-center gap-2">
+          <Palette className="h-4 w-4 text-brand-500" />
+          <p className="text-sm font-bold text-slate-900 dark:text-white">Color</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {Object.entries(CANVAS_COLORS).map(([value, item]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onUpdate('color', value)}
+              className={clsx(
+                'flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition',
+                color === value ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-800 dark:bg-brand-950/30 dark:text-brand-300' : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800',
+              )}
+            >
+              <span className={clsx('h-3 w-3 rounded-full', item.swatch)} />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Textarea
+        label={isGroup ? 'Section comment' : 'Comment'}
+        rows={5}
+        value={config.comment || ''}
+        placeholder={isGroup ? 'Describe what this workflow section does.' : 'Write a note for this workflow.'}
+        onChange={(event) => onUpdate('comment', event.target.value)}
+      />
+
+      <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">
+        <span>
+          <span className="block">Lock movement</span>
+          <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">Prevent accidental dragging and resizing while editing nodes.</span>
+        </span>
+        <input type="checkbox" checked={Boolean(config.locked)} onChange={(event) => onUpdate('locked', event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+      </label>
+    </section>
   )
 }
 
@@ -1491,10 +2876,19 @@ function buildNodeDefinitions(accounts) {
 
 function createNode(definition, index, overrides = {}) {
   const id = overrides.id || `${definition.key}-${Date.now()}-${index}`
+  const isCanvas = isCanvasElementKey(definition.key)
+  const style = overrides.style || (definition.key === 'group_background'
+    ? { width: 520, height: 260 }
+    : definition.key === 'sticky_note'
+      ? { width: 280, height: 180 }
+      : undefined)
+  const locked = Boolean((overrides.config || definition.defaults || {}).locked)
   return {
     id,
     type: 'workflowNode',
     position: overrides.position || { x: 80 + index * 90, y: 80 + index * 40 },
+    ...(style ? { style } : {}),
+    ...(isCanvas ? { draggable: !locked, zIndex: overrides.zIndex ?? (definition.key === 'group_background' ? -20 : 5) } : {}),
     data: {
       key: definition.key,
       category: definition.category,
@@ -1511,9 +2905,16 @@ function createNode(definition, index, overrides = {}) {
 function buildTemplateWorkflow(template, definitions, accounts) {
   const nodes = template.nodes.map((key, index) => {
     const definition = definitions.find((item) => item.key === key) || definitions.find((item) => item.key === 'manual_trigger')
-    const config = {}
-    if (key === 'publish_social_account') config.account_ids = accounts.filter(isUsableAccount).slice(0, 3).map((account) => account.id)
+    const config = { ...(template.config?.[key] || {}) }
+    if (key === 'publish_social_account') {
+      const usableAccounts = accounts.filter(isUsableAccount)
+      const platformAccounts = template.platform ? usableAccounts.filter((account) => account.platform === template.platform) : usableAccounts
+      config.account_ids = (platformAccounts.length ? platformAccounts : usableAccounts).slice(0, 3).map((account) => account.id)
+      config.publish_mode = 'publish_now'
+      if (template.platform) config.platform = template.platform
+    }
     if (key === 'rss_feed_trigger') config.feed_urls = ''
+    if (key === 'schedule_trigger' && template.schedule) Object.assign(config, template.schedule)
     return createNode(definition, index, {
       id: `${template.key}-${key}-${index + 1}`,
       position: { x: 80 + index * 280, y: 120 + (index % 2) * 110 },
@@ -1532,7 +2933,7 @@ function buildTemplateWorkflow(template, definitions, accounts) {
 
 function normalizeWorkflow(workflow, automation, accounts) {
   const definitions = buildNodeDefinitions(accounts)
-  if (workflow?.nodes?.length) {
+  if (workflow && Array.isArray(workflow.nodes)) {
     const nodes = workflow.nodes.slice(0, 100).map((node, index) => normalizeNode(node, index, definitions)).filter(Boolean)
     const nodeIds = new Set(nodes.map((node) => node.id))
     const edges = Array.isArray(workflow.edges)
@@ -1547,8 +2948,7 @@ function normalizeWorkflow(workflow, automation, accounts) {
     return { nodes, edges }
   }
 
-  const baseTemplate = automation?.type === 'rss_feed' ? TEMPLATE_DEFINITIONS[1] : TEMPLATE_DEFINITIONS[0]
-  return buildTemplateWorkflow(baseTemplate, definitions, accounts)
+  return { nodes: [], edges: [] }
 }
 
 function normalizeNode(node, index, definitions) {
@@ -1556,6 +2956,10 @@ function normalizeNode(node, index, definitions) {
   const oldKind = node.data?.kind
   const key = cleanString(node.data?.key || OLD_KIND_MAP[oldKind] || 'create_post', 80)
   const definition = definitions.find((item) => item.key === key) || BASE_NODE_DEFINITIONS.find((item) => item.key === key) || BASE_NODE_DEFINITIONS.find((item) => item.key === 'create_post')
+  const config = { ...(definition.defaults || {}), ...(node.data?.config || node.data?.settings || {}) }
+  const canvas = isCanvasElementKey(definition.key)
+  const width = safeNodeWidth(node, definition.key)
+  const height = safeNodeHeight(node, definition.key)
   return {
     id: cleanString(node.id || `${key}-${index + 1}`, 100),
     type: 'workflowNode',
@@ -1563,6 +2967,11 @@ function normalizeNode(node, index, definitions) {
       x: safeNumber(node.position?.x, 80 + index * 280),
       y: safeNumber(node.position?.y, 80),
     },
+    ...(canvas ? {
+      draggable: !config.locked,
+      zIndex: safeNumber(node.zIndex, definition.key === 'group_background' ? -20 : 5),
+      style: { width, height },
+    } : {}),
     data: {
       key: definition.key,
       category: definition.category,
@@ -1570,7 +2979,7 @@ function normalizeNode(node, index, definitions) {
       description: cleanString(node.data?.description || definition.description, 240),
       tone: cleanString(node.data?.tone || definition.tone || CATEGORY_TONES[definition.category] || 'slate', 20),
       platform: definition.platform || node.data?.platform || null,
-      config: { ...(definition.defaults || {}), ...(node.data?.config || node.data?.settings || {}) },
+      config,
       status: ['draft', 'ready', 'error'].includes(node.data?.status) ? node.data.status : 'draft',
     },
   }
@@ -1584,6 +2993,14 @@ function sanitizeNodes(nodes) {
       x: safeNumber(node.position?.x, 80),
       y: safeNumber(node.position?.y, 80),
     },
+    ...(isCanvasElement(node) ? {
+      draggable: !node.data?.config?.locked,
+      zIndex: safeNumber(node.zIndex, node.data?.key === 'group_background' ? -20 : 5),
+      style: {
+        width: safeNodeWidth(node, node.data?.key),
+        height: safeNodeHeight(node, node.data?.key),
+      },
+    } : {}),
     data: {
       key: cleanString(node.data?.key || 'create_post', 80),
       category: cleanString(node.data?.category || 'Content', 60),
@@ -1598,7 +3015,7 @@ function sanitizeNodes(nodes) {
 }
 
 function sanitizeEdges(edges, nodes) {
-  const ids = new Set(nodes.map((node) => node.id))
+  const ids = new Set(nodes.filter((node) => !isCanvasElement(node)).map((node) => node.id))
   return edges.slice(0, 200).filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
     id: cleanString(edge.id || `${edge.source}-${edge.target}`, 140),
     source: cleanString(edge.source, 100),
@@ -1619,6 +3036,7 @@ function sanitizeConfig(value) {
 
 function settingsFromAutomation(automation) {
   const config = automation?.config || {}
+  const schedule = normalizeScheduleSettings(config.schedule || scheduleFromWorkflow(config.workflow) || { interval_minutes: config.interval_minutes || 60 })
   return {
     name: automation?.name || 'Untitled automation',
     description: automation?.description || config.description || '',
@@ -1626,7 +3044,8 @@ function settingsFromAutomation(automation) {
     is_active: Boolean(automation?.is_active),
     requires_approval: Boolean(automation?.requires_approval),
     use_ai: Boolean(automation?.use_ai),
-    interval_minutes: config.interval_minutes || 30,
+    interval_minutes: scheduleIntervalMinutes(schedule),
+    schedule,
     selected_account_ids: Array.isArray(automation?.social_account_ids) ? automation.social_account_ids : [],
     safety: {
       duplicate_detection: config.safety?.duplicate_detection ?? true,
@@ -1642,21 +3061,61 @@ function defaultSettings() {
   return settingsFromAutomation({})
 }
 
+function defaultScheduleSettings() {
+  return {
+    cadence: 'hourly',
+    interval_minutes: 60,
+    time: '09:00',
+    weekday: 'monday',
+    timezone: 'workspace',
+  }
+}
+
+function normalizeScheduleSettings(value = {}) {
+  const defaults = defaultScheduleSettings()
+  const cadence = ['hourly', 'daily', 'weekly', 'interval'].includes(value.cadence) ? value.cadence : defaults.cadence
+  const interval = Math.max(cadence === 'hourly' ? 15 : 5, Math.min(Number(value.interval_minutes || defaults.interval_minutes) || defaults.interval_minutes, 525600))
+  return {
+    ...defaults,
+    ...value,
+    cadence,
+    interval_minutes: interval,
+    time: /^\d{2}:\d{2}$/.test(String(value.time || '')) ? value.time : defaults.time,
+    weekday: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(value.weekday) ? value.weekday : defaults.weekday,
+    timezone: value.timezone || defaults.timezone,
+  }
+}
+
+function scheduleIntervalMinutes(schedule) {
+  const normalized = normalizeScheduleSettings(schedule)
+  if (normalized.cadence === 'daily') return 1440
+  if (normalized.cadence === 'weekly') return 10080
+  return Number(normalized.interval_minutes) || 60
+}
+
+function scheduleFromWorkflow(workflow) {
+  const trigger = Array.isArray(workflow?.nodes)
+    ? workflow.nodes.find((node) => node?.data?.key === 'schedule_trigger')
+    : null
+  return trigger?.data?.config || null
+}
+
 function workflowChecks(nodes, edges, accounts, settings) {
+  const workflowNodes = nodes.filter((node) => !isCanvasElement(node))
   const usableAccounts = accounts.filter(isUsableAccount)
-  const hasTrigger = nodes.some((node) => node.data.category === 'Triggers')
-  const hasPublish = nodes.some((node) => node.data.category === 'Social Publishing' && ['publish_social_account', 'create_draft'].includes(basePublishKey(node.data.key)))
-  const selectedAccountIds = collectAccountIds(sanitizeNodes(nodes), settings)
-  const hasPublishAccount = selectedAccountIds.length > 0 || nodes.some((node) => node.data.key === 'create_draft')
+  const hasTrigger = workflowNodes.some((node) => node.data.category === 'Triggers')
+  const hasPublish = workflowNodes.some((node) => node.data.category === 'Social Publishing' && ['publish_social_account', 'create_draft'].includes(basePublishKey(node.data.key)))
+  const selectedAccountIds = collectAccountIds(sanitizeNodes(workflowNodes), settings)
+  const hasPublishAccount = selectedAccountIds.length > 0 || workflowNodes.some((node) => node.data.key === 'create_draft')
   const needsToken = usableAccounts.some((account) => account.needs_reconnect || account.is_expired || account.status === 'error')
   return [
     { key: 'trigger', label: 'Trigger', ok: hasTrigger, message: hasTrigger ? 'Workflow has a starting trigger.' : 'Add a manual, schedule, RSS, or webhook trigger.' },
-    { key: 'flow', label: 'Connected flow', ok: nodes.length <= 1 || edges.length > 0, message: edges.length > 0 ? 'Nodes are linked on the canvas.' : 'Connect at least one node pair.' },
+    { key: 'flow', label: 'Connected flow', ok: workflowNodes.length <= 1 || edges.length > 0, message: edges.length > 0 ? 'Nodes are linked on the canvas.' : 'Connect at least one node pair.' },
     { key: 'account', label: 'Connected accounts', ok: usableAccounts.length > 0, message: usableAccounts.length ? `${usableAccounts.length} usable social accounts available.` : 'Connect at least one social account before publishing.' },
     { key: 'publish', label: 'Publish target', ok: hasPublish && hasPublishAccount, message: hasPublishAccount ? 'Publishing is configured.' : 'Choose a publish account or draft output.' },
-    { key: 'approval', label: 'Approval safety', ok: settings.requires_approval || nodes.some((node) => node.data.key === 'approval_required'), message: settings.requires_approval ? 'Approval is enabled.' : 'Add approval for unattended publishing.' },
-    { key: 'platform_rules', label: 'Platform rules', ok: settings.safety?.platform_rules || nodes.some((node) => node.data.key === 'platform_media_validator'), message: settings.safety?.platform_rules ? 'Platform guardrails are enabled.' : 'Enable platform rules or add a media validator.' },
-    { key: 'failure_alert', label: 'Failure alert', ok: settings.safety?.failure_alert || nodes.some((node) => node.data.key === 'send_failure_alert'), message: settings.safety?.failure_alert ? 'Failures will notify the team.' : 'Add a failure alert for retries and visibility.' },
+    { key: 'approval', label: 'Approval safety', ok: settings.requires_approval || workflowNodes.some((node) => node.data.key === 'approval_required'), message: settings.requires_approval ? 'Approval is enabled.' : 'Add approval for unattended publishing.' },
+    { key: 'platform_rules', label: 'Platform rules', ok: settings.safety?.platform_rules || workflowNodes.some((node) => node.data.key === 'platform_media_validator'), message: settings.safety?.platform_rules ? 'Platform guardrails are enabled.' : 'Enable platform rules or add a media validator.' },
+    { key: 'failure_alert', label: 'Failure alert', ok: settings.safety?.failure_alert || workflowNodes.some((node) => node.data.key === 'send_failure_alert'), message: settings.safety?.failure_alert ? 'Failures will notify the team.' : 'Add a failure alert for retries and visibility.' },
     { key: 'tokens', label: 'Token health', ok: !needsToken, message: needsToken ? 'One or more accounts need reconnect.' : 'No account token warnings detected.' },
   ]
 }
@@ -1754,6 +3213,38 @@ function shortCategoryLabel(category) {
   return category.replace('Social ', '').replace('Data / ', '').replace('Developer ', 'Dev ')
 }
 
+function isCanvasElement(node) {
+  return isCanvasElementKey(node?.data?.key)
+}
+
+function isCanvasElementKey(key) {
+  return ['group_background', 'sticky_note'].includes(String(key || ''))
+}
+
+function boundsForNodes(nodes, padding = 0) {
+  if (!nodes.length) return { x: 80, y: 80, width: 320, height: 200 }
+  const left = Math.min(...nodes.map((node) => node.position.x))
+  const top = Math.min(...nodes.map((node) => node.position.y))
+  const right = Math.max(...nodes.map((node) => node.position.x + safeNodeWidth(node, node.data?.key)))
+  const bottom = Math.max(...nodes.map((node) => node.position.y + safeNodeHeight(node, node.data?.key)))
+  return {
+    x: left - padding,
+    y: top - padding,
+    width: Math.max(220, right - left + padding * 2),
+    height: Math.max(140, bottom - top + padding * 2),
+  }
+}
+
+function safeNodeWidth(node, key) {
+  const fallback = key === 'group_background' ? 520 : key === 'sticky_note' ? 280 : 260
+  return clamp(safeNumber(node?.style?.width ?? node?.width ?? node?.measured?.width, fallback), 160, 2000)
+}
+
+function safeNodeHeight(node, key) {
+  const fallback = key === 'group_background' ? 260 : key === 'sticky_note' ? 180 : 120
+  return clamp(safeNumber(node?.style?.height ?? node?.height ?? node?.measured?.height, fallback), 90, 1400)
+}
+
 function nextNodePosition(nodes, category) {
   const column = workflowOrder(category)
   const sameColumn = nodes.filter((node) => workflowOrder(node.data?.category) === column).length
@@ -1771,6 +3262,114 @@ function workflowOrder(category) {
 function safeNumber(value, fallback) {
   const number = Number(value)
   return Number.isFinite(number) ? Math.max(-5000, Math.min(5000, number)) : fallback
+}
+
+function isEditableShortcutTarget(target) {
+  if (!(target instanceof Element)) return false
+  return Boolean(target.closest('input, textarea, select, button, a, [contenteditable="true"], [role="textbox"]'))
+}
+
+function normalizeWorkflowMediaItems(items) {
+  return Array.isArray(items)
+    ? items.map(normalizeWorkflowMediaItem).filter(Boolean)
+    : []
+}
+
+function normalizeWorkflowMediaItem(item) {
+  if (!item || typeof item !== 'object') return null
+  const url = mediaUrl(item.url || item.localUrl || '')
+  const thumbnailUrl = mediaUrl(item.thumbnail_url || item.thumbnailUrl || url)
+
+  return {
+    id: item.id,
+    original_name: item.original_name || item.name || 'Workflow image',
+    type: IMAGE_MEDIA_TYPES.includes(item.type) ? item.type : 'image',
+    mime_type: item.mime_type || item.mimeType || '',
+    url,
+    thumbnail_url: thumbnailUrl,
+    alt_text: item.alt_text || '',
+    ...(item.localUrl ? { localUrl: item.localUrl } : {}),
+    ...(item.uploading ? { uploading: true } : {}),
+  }
+}
+
+function summarizeWorkflowMediaItems(items) {
+  const seen = new Set()
+  return normalizeWorkflowMediaItems(items).filter((item) => {
+    const key = item.id ?? item.url
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function workflowMediaIdsFromItems(items) {
+  return summarizeWorkflowMediaItems(items)
+    .filter((item) => typeof item.id === 'number')
+    .map((item) => item.id)
+}
+
+function workflowMediaUrlsFromItems(items, extraUrl = '') {
+  return [...summarizeWorkflowMediaItems(items).map((item) => item.url), extraUrl]
+    .map((url) => String(url || '').trim())
+    .filter(Boolean)
+    .filter((url, index, list) => list.indexOf(url) === index)
+}
+
+function hasUploadingWorkflowMedia(nodes) {
+  return nodes.some((node) => node.data?.key === 'create_post' && normalizeWorkflowMediaItems(node.data?.config?.media).some((item) => item.uploading))
+}
+
+function delayDurationSeconds(value, unit) {
+  const amount = Math.max(0, Number(value) || 0)
+  const multiplier = {
+    seconds: 1,
+    minutes: 60,
+    hours: 3600,
+    days: 86400,
+  }[unit] || 60
+  return amount * multiplier
+}
+
+function formatDelayPreview(seconds) {
+  if (!seconds) return 'no delay'
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`
+  if (seconds < 3600) {
+    const minutes = Math.round(seconds / 60)
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`
+  }
+  if (seconds < 86400) {
+    const hours = Math.round(seconds / 3600)
+    return `${hours} hour${hours === 1 ? '' : 's'}`
+  }
+  const days = Math.round(seconds / 86400)
+  return `${days} day${days === 1 ? '' : 's'}`
+}
+
+function notificationPreviewText(value) {
+  const sample = {
+    '{{automation.name}}': 'Launch workflow',
+    '{{post.id}}': '#1284',
+    '{{delay.duration}}': '15 minutes',
+    '{{workflow.status}}': 'Completed',
+    '{{now}}': new Date().toLocaleString(),
+  }
+
+  return Object.entries(sample).reduce((text, [token, replacement]) => text.split(token).join(replacement), String(value || ''))
+}
+
+function notificationPriorityClass(priority, filled = false) {
+  const classes = {
+    low: filled ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' : 'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+    normal: filled ? 'bg-brand-100 text-brand-700 dark:bg-brand-950/50 dark:text-brand-300' : 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-800 dark:bg-brand-950/30 dark:text-brand-300',
+    high: filled ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300',
+    critical: filled ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300',
+  }
+  return classes[priority] || classes.normal
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max)
 }
 
 function cleanString(value, maxLength) {

@@ -9,31 +9,7 @@ import {
 import api from '../lib/api'
 import PlatformBadge, { PLATFORMS } from '../components/PlatformBadge'
 import { useAuth } from '../context/AuthContext'
-
-const NAV_ITEMS = [
-  {
-    label: 'Product',
-    href: '#product',
-    type: 'mega',
-    items: [
-      ['Composer', 'Create platform-ready posts from one idea.', '#product'],
-      ['Calendar', 'Plan, reschedule and track status visually.', '#product'],
-      ['Automations', 'Keep repeatable content workflows moving.', '#workflow'],
-      ['Analytics', 'Understand performance without spreadsheets.', '#product'],
-    ],
-  },
-  { label: 'How it works', href: '#workflow' },
-  {
-    label: 'Platforms',
-    href: '#platforms',
-    items: [
-      ['Instagram', 'Visual posts and campaign planning.', '#platforms'],
-      ['LinkedIn', 'Profile and company publishing workflows.', '#platforms'],
-      ['Pinterest', 'Boards, pins and evergreen content.', '#platforms'],
-    ],
-  },
-  { label: 'Pricing', href: '#pricing' },
-]
+import { mediaUrl } from '../lib/media'
 
 const PRODUCT_PILLARS = [
   {
@@ -118,11 +94,31 @@ const FALLBACK_PLANS = [
   { id: 'business', name: 'Business', description: 'For larger organizations.', price_monthly: 99, price_yearly: 990, features: ['Unlimited scale', 'Priority support', 'SSO and audit logs', 'Dedicated success manager'] },
 ]
 
+const MENU_ICON_COMPONENTS = {
+  analytics: BarChart3,
+  automation: Workflow,
+  automations: Workflow,
+  bot: Bot,
+  calendar: CalendarDays,
+  content: FileCheck2,
+  dashboard: Gauge,
+  image: ImageIcon,
+  media: ImageIcon,
+  plan: CalendarDays,
+  planner: CalendarDays,
+  security: ShieldCheck,
+  sparkle: Sparkles,
+  team: Users,
+  users: Users,
+  workflow: Workflow,
+}
+
 export default function Landing() {
   const { user, activeWorkspace, logout } = useAuth()
   const [plans, setPlans] = useState([])
+  const [latestNews, setLatestNews] = useState([])
   const [settings, setSettings] = useState(null)
-  const [yearly, setYearly] = useState(false)
+  const [billingCycle, setBillingCycle] = useState('monthly')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [previewTab, setPreviewTab] = useState('calendar')
@@ -134,15 +130,20 @@ export default function Landing() {
     api
       .get('/public/settings')
       .then(({ data }) => {
-        setSettings(data)
-        const name = data?.general?.site_name || data?.platform_name || 'Postflow'
-        document.title = data?.seo?.meta_title || `${name} - Plan, publish and grow everywhere`
+        const publicSettings = data?.data || data || {}
+        setSettings(publicSettings)
+        const name = publicSettings?.general?.site_name || publicSettings?.platform_name || 'Postflow'
+        document.title = publicSettings?.seo?.meta_title || `${name} - Plan, publish and grow everywhere`
       })
       .catch(() => {})
     api
       .get('/plans')
       .then(({ data }) => setPlans(Array.isArray(data.data) && data.data.length ? data.data : FALLBACK_PLANS))
       .catch(() => setPlans(FALLBACK_PLANS))
+    api
+      .get('/public/news', { params: { limit: 3 } })
+      .then(({ data }) => setLatestNews(Array.isArray(data.data) ? data.data : []))
+      .catch(() => setLatestNews([]))
   }, [])
 
   useEffect(() => {
@@ -159,7 +160,7 @@ export default function Landing() {
     revealItems.forEach((item) => observer.observe(item))
 
     return () => observer.disconnect()
-  }, [plans.length])
+  }, [latestNews.length, plans.length])
 
   useEffect(() => {
     const closeAccountMenu = (event) => {
@@ -181,11 +182,21 @@ export default function Landing() {
   }, [])
 
   const displayedPlans = plans.length ? plans : FALLBACK_PLANS
+  const hasLifetimePlans = displayedPlans.some((plan) => plan.lifetime_enabled)
   const primaryHref = user ? '/app' : '/register'
   const primaryLabel = user ? 'Open dashboard' : 'Start for free'
   const brandName = settings?.general?.site_name || settings?.platform_name || 'Postflow'
   const logoUrl = settings?.general?.logo_url
-  const navigationItems = menuItemsFromSettings(settings?.main_menu?.items) || NAV_ITEMS
+  const navigationItems = menuItemsFromSettings(settings?.main_menu?.items)
+  const footerTopText = publicFooterText(settings?.footer?.top_text)
+  const footerBottomText = publicFooterText(settings?.footer?.bottom_text)
+  const footerColumns = footerColumnsFromSettings(settings?.footer?.columns)
+  const hasFooterContent = Boolean(
+    footerTopText
+      || footerBottomText
+      || footerColumns.some((column) => column.title || column.widgets.length),
+  )
+  const footerGridTemplate = ['minmax(0,1.4fr)', ...footerColumns.map((column) => column.width || '1fr')].join(' ')
   const workspaceName = activeWorkspace?.name || 'Workspace'
   const currentPlanName = activeWorkspace?.subscription?.plan?.name || activeWorkspace?.subscription?.plan_name || (user ? 'Free' : '')
   const planRenewDate = activeWorkspace?.subscription?.renews_at || activeWorkspace?.subscription?.ends_at || activeWorkspace?.subscription?.trial_ends_at
@@ -205,27 +216,31 @@ export default function Landing() {
       <header className="fixed inset-x-0 top-0 z-40 border-b border-slate-900/5 bg-[#f8f7f3]/80 backdrop-blur-xl dark:border-white/10 dark:bg-[#080b12]/75">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 lg:px-8">
           <div className="flex items-center gap-2.5">
-            <button
-              className="rounded-xl border border-slate-900/10 p-2 text-slate-700 dark:border-white/10 dark:text-slate-200 lg:hidden"
-              onClick={() => {
-                setMobileOpen(true)
-                setAccountOpen(false)
-              }}
-              aria-label="Open navigation"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
+            {navigationItems.length > 0 && (
+              <button
+                className="rounded-xl border border-slate-900/10 p-2 text-slate-700 dark:border-white/10 dark:text-slate-200 lg:hidden"
+                onClick={() => {
+                  setMobileOpen(true)
+                  setAccountOpen(false)
+                }}
+                aria-label="Open navigation"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            )}
             <Link to="/" className="flex items-center gap-2.5" aria-label={`${brandName} home`}>
               <LogoMark logoUrl={logoUrl} />
               <span className="text-lg font-extrabold tracking-[-0.035em]">{brandName}</span>
             </Link>
           </div>
 
-          <nav className="hidden items-center gap-7 text-sm font-semibold text-slate-600 dark:text-slate-300 lg:flex">
-            {navigationItems.map((item) => (
-              <DesktopNavItem key={`${item.label}-${item.href}`} item={item} />
-            ))}
-          </nav>
+          {navigationItems.length > 0 && (
+            <nav className="hidden items-center gap-7 text-sm font-semibold text-slate-600 dark:text-slate-300 lg:flex">
+              {navigationItems.map((item) => (
+                <DesktopNavItem key={`${item.label}-${item.href}`} item={item} />
+              ))}
+            </nav>
+          )}
 
           <div className="flex items-center gap-2 sm:gap-3">
             {!user && <Link to="/login" className="hidden px-3 py-2 text-sm font-semibold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white sm:inline-flex">Log in</Link>}
@@ -276,6 +291,7 @@ export default function Landing() {
 
       </header>
 
+      {navigationItems.length > 0 && (
       <div className={`fixed inset-0 z-50 lg:hidden ${mobileOpen ? 'pointer-events-auto' : 'pointer-events-none'}`} aria-hidden={!mobileOpen}>
         <div
           className={`absolute inset-0 bg-slate-950/45 backdrop-blur-[2px] transition-opacity duration-300 ${mobileOpen ? 'opacity-100' : 'opacity-0'}`}
@@ -309,12 +325,15 @@ export default function Landing() {
                 </a>
                 {item.items && (
                   <div className="ml-3 border-l border-slate-900/10 pl-3 dark:border-white/10">
-                    {item.items.map(([label, description, href]) => (
-                      <a key={label} href={href} onClick={() => setMobileOpen(false)} className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-900/5 dark:hover:bg-white/5">
-                        <span className="font-semibold">{label}</span>
-                        <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</span>
+                    {item.items.map((child) => {
+                      const navChild = normalizeNavChild(child)
+                      return (
+                      <a key={navChild.label} href={navChild.href} onClick={() => setMobileOpen(false)} className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-900/5 dark:hover:bg-white/5">
+                        <span className="flex items-center gap-2 font-semibold"><MenuIcon name={navChild.icon} className="h-4 w-4 text-indigo-500" />{navChild.label}</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">{navChild.description}</span>
                       </a>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -323,6 +342,7 @@ export default function Landing() {
           </nav>
         </aside>
       </div>
+      )}
 
       <main>
         <section className="relative pt-16">
@@ -512,28 +532,31 @@ export default function Landing() {
               body="Begin with the essentials, then add accounts, automation and team controls when your operation grows."
             />
             <div className="mt-8 flex justify-center">
-              <div className="inline-flex rounded-full border border-slate-900/10 bg-white p-1 shadow-sm dark:border-white/10 dark:bg-white/5">
-                <button onClick={() => setYearly(false)} className={`rounded-full px-5 py-2 text-sm font-bold transition ${!yearly ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'text-slate-500'}`}>Monthly</button>
-                <button onClick={() => setYearly(true)} className={`rounded-full px-5 py-2 text-sm font-bold transition ${yearly ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'text-slate-500'}`}>Yearly <span className="ml-1 text-emerald-500">save 20%</span></button>
+              <div className="inline-flex flex-wrap justify-center rounded-full border border-slate-900/10 bg-white p-1 shadow-sm dark:border-white/10 dark:bg-white/5">
+                <button onClick={() => setBillingCycle('monthly')} className={`rounded-full px-5 py-2 text-sm font-bold transition ${billingCycle === 'monthly' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'text-slate-500'}`}>Monthly</button>
+                <button onClick={() => setBillingCycle('yearly')} className={`rounded-full px-5 py-2 text-sm font-bold transition ${billingCycle === 'yearly' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'text-slate-500'}`}>Yearly <span className="ml-1 text-emerald-500">save 20%</span></button>
+                {hasLifetimePlans && <button onClick={() => setBillingCycle('lifetime')} className={`rounded-full px-5 py-2 text-sm font-bold transition ${billingCycle === 'lifetime' ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950' : 'text-slate-500'}`}>Lifetime</button>}
               </div>
             </div>
 
             <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {displayedPlans.map((plan, index) => {
-                const rawPrice = yearly ? plan.price_yearly : plan.price_monthly
-                const price = yearly && rawPrice > 0 ? Math.round((rawPrice / 12) * 100) / 100 : rawPrice
+                const rawPrice = Number(billingCycle === 'lifetime' ? (plan.price_lifetime ?? 0) : billingCycle === 'yearly' ? (plan.price_yearly ?? 0) : (plan.price_monthly ?? 0))
+                const price = billingCycle === 'yearly' && rawPrice > 0 ? Math.round((rawPrice / 12) * 100) / 100 : rawPrice
                 const isCurrent = Boolean(user && currentPlanName && normalizePlan(plan.name) === normalizePlan(currentPlanName))
+                const lifetimeUnavailable = billingCycle === 'lifetime' && !plan.lifetime_enabled
                 return (
-                  <article key={plan.id} data-reveal style={{ '--reveal-delay': `${index * 60}ms` }} className={`landing-reveal relative flex flex-col rounded-[1.5rem] border p-6 ${plan.is_featured ? 'border-indigo-500 bg-slate-950 text-white shadow-xl shadow-indigo-500/10' : 'border-slate-900/10 bg-white dark:border-white/10 dark:bg-white/[0.045]'} ${isCurrent ? 'ring-2 ring-emerald-400/80' : ''}`}>
+                  <article key={plan.id} data-reveal style={{ '--reveal-delay': `${index * 60}ms` }} className={`landing-reveal relative flex flex-col rounded-[1.5rem] border p-6 ${plan.is_featured ? 'border-indigo-500 bg-slate-950 text-white shadow-xl shadow-indigo-500/10' : 'border-slate-900/10 bg-white dark:border-white/10 dark:bg-white/[0.045]'} ${isCurrent ? 'ring-2 ring-emerald-400/80' : ''} ${lifetimeUnavailable ? 'opacity-60' : ''}`}>
                     {plan.is_featured && <span className="absolute right-5 top-5 rounded-full bg-indigo-400/20 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-indigo-200">Most popular</span>}
                     {isCurrent && <span className="absolute left-5 top-5 rounded-full bg-emerald-500 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white">Current plan</span>}
                     <h3 className={`text-xl font-black ${isCurrent ? 'mt-7' : ''}`}>{plan.name}</h3>
                     <p className={`mt-2 min-h-11 text-sm leading-6 ${plan.is_featured ? 'text-slate-300' : 'text-slate-500 dark:text-slate-400'}`}>{plan.description}</p>
                     <div className="mt-7 flex items-end gap-1">
                       <span className="text-4xl font-black tracking-[-0.06em]">${price}</span>
-                      <span className={`pb-1.5 text-sm ${plan.is_featured ? 'text-slate-400' : 'text-slate-500'}`}>/mo</span>
+                      <span className={`pb-1.5 text-sm ${plan.is_featured ? 'text-slate-400' : 'text-slate-500'}`}>{billingCycle === 'lifetime' ? 'one-time' : '/mo'}</span>
                     </div>
-                    {yearly && rawPrice > 0 && <p className={`mt-1 text-xs ${plan.is_featured ? 'text-indigo-300' : 'text-emerald-600 dark:text-emerald-400'}`}>${rawPrice} billed yearly</p>}
+                    {billingCycle === 'yearly' && rawPrice > 0 && <p className={`mt-1 text-xs ${plan.is_featured ? 'text-indigo-300' : 'text-emerald-600 dark:text-emerald-400'}`}>${rawPrice} billed yearly</p>}
+                    {lifetimeUnavailable && <p className={`mt-1 text-xs ${plan.is_featured ? 'text-slate-400' : 'text-slate-500 dark:text-slate-400'}`}>Lifetime deal not available on this plan</p>}
                     <div className={`my-7 h-px ${plan.is_featured ? 'bg-white/10' : 'bg-slate-900/10 dark:bg-white/10'}`} />
                     <ul className="flex-1 space-y-3 text-sm">
                       {(plan.features || []).map((feature) => (
@@ -541,7 +564,7 @@ export default function Landing() {
                       ))}
                     </ul>
                     <Link to={user ? '/app/pricing-plan' : '/register'} className={`mt-8 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${isCurrent ? 'bg-emerald-500 text-white hover:bg-emerald-600' : plan.is_featured ? 'bg-white text-slate-950 hover:bg-indigo-50' : 'border border-slate-900/15 hover:bg-slate-950 hover:text-white dark:border-white/15 dark:hover:bg-white dark:hover:text-slate-950'}`}>
-                      {isCurrent ? 'Current plan' : user ? 'Manage plan' : Number(plan.price_monthly) === 0 ? 'Get started' : 'Start free trial'} <ArrowRight className="h-4 w-4" />
+                      {isCurrent ? 'Current plan' : user ? 'Manage plan' : Number(rawPrice) === 0 ? 'Get started' : billingCycle === 'lifetime' ? 'Get lifetime deal' : 'Start free trial'} <ArrowRight className="h-4 w-4" />
                     </Link>
                     {isCurrent && planRenewDate && <p className={`mt-2 text-center text-[11px] ${plan.is_featured ? 'text-slate-400' : 'text-slate-500 dark:text-slate-400'}`}>Renews {new Date(planRenewDate).toLocaleDateString()}</p>}
                   </article>
@@ -570,6 +593,36 @@ export default function Landing() {
           </div>
         </section>
 
+        {latestNews.length > 0 && (
+          <section className="mx-auto max-w-7xl px-5 pb-18 lg:px-8">
+            <div data-reveal className="landing-reveal flex flex-col justify-between gap-4 border-b border-slate-900/10 pb-6 dark:border-white/10 sm:flex-row sm:items-end">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-300">Latest news</p>
+                <h2 className="mt-3 text-3xl font-black tracking-[-0.05em] sm:text-4xl">Updates from Postflow.</h2>
+              </div>
+              <Link to="/news" className="inline-flex items-center gap-2 text-sm font-bold text-indigo-600 transition hover:text-indigo-800 dark:text-indigo-300 dark:hover:text-indigo-100">View all news <ArrowRight className="h-4 w-4" /></Link>
+            </div>
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              {latestNews.map((post, index) => (
+                <Link key={post.id} to={`/news/${post.slug}`} data-reveal style={{ '--reveal-delay': `${index * 80}ms` }} className="landing-reveal group overflow-hidden rounded-[1.5rem] border border-slate-900/10 bg-white transition hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/10 dark:border-white/10 dark:bg-white/[0.045]">
+                  <div className="aspect-[16/9] bg-slate-100 dark:bg-white/5">
+                    {post.hero_image_url ? <img src={post.hero_image_url} alt="" className="h-full w-full object-cover" /> : <div className="landing-grid-bg h-full opacity-25" />}
+                  </div>
+                  <div className="p-5">
+                    <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
+                      <span className="font-black uppercase tracking-wide text-indigo-600 dark:text-indigo-300">{post.category || 'News'}</span>
+                      <span>{post.published_at ? new Date(post.published_at).toLocaleDateString() : 'Published'}</span>
+                    </div>
+                    <h3 className="mt-3 line-clamp-2 text-lg font-black tracking-[-0.03em]">{post.title}</h3>
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{post.summary}</p>
+                    <span className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-indigo-600 dark:text-indigo-300">Read update <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" /></span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="px-5 pb-8 lg:px-8">
           <div data-reveal className="landing-reveal relative mx-auto max-w-7xl overflow-hidden rounded-[2rem] bg-indigo-600 px-6 py-16 text-center text-white shadow-xl shadow-indigo-600/15 sm:px-12 lg:py-20">
             <div className="landing-grid-bg absolute inset-0 opacity-20" />
@@ -588,30 +641,26 @@ export default function Landing() {
         </section>
       </main>
 
-      <footer className="mx-auto max-w-7xl px-5 pb-8 pt-12 lg:px-8">
-        <div className="grid gap-10 border-b border-slate-900/10 pb-12 dark:border-white/10 md:grid-cols-2 lg:grid-cols-5">
-          <div className="lg:col-span-2">
-            <div className="flex items-center gap-2.5"><LogoMark logoUrl={logoUrl} /><span className="text-lg font-black tracking-[-0.04em]">{brandName}</span></div>
-            <p className="mt-4 max-w-sm leading-7 text-slate-500 dark:text-slate-400">A focused social media workspace for planning, publishing, automation and team collaboration.</p>
+      {hasFooterContent && (
+        <footer className="mx-auto max-w-7xl px-5 pb-8 pt-12 lg:px-8">
+          <div className="grid gap-8 border-b border-slate-900/10 pb-12 dark:border-white/10 md:grid-cols-2 lg:grid-cols-[var(--footer-columns)]" style={{ '--footer-columns': footerGridTemplate || '1fr' }}>
+            {(footerTopText || brandName || logoUrl) && (
+              <div>
+                <div className="flex items-center gap-2.5"><LogoMark logoUrl={logoUrl} /><span className="text-lg font-black tracking-[-0.04em]">{brandName}</span></div>
+                {footerTopText && <p className="mt-4 max-w-sm leading-7 text-slate-500 dark:text-slate-400">{footerTopText}</p>}
+              </div>
+            )}
+            {footerColumns.map((column) => (
+              <FooterColumn key={column.id} column={column} />
+            ))}
           </div>
-          {[
-            ['Product', ['Composer', 'Calendar', 'Automations', 'Analytics']],
-            ['Company', ['Pricing', 'Security', 'Developers', 'Changelog']],
-            ['Account', ['Log in', 'Create account', 'Dashboard', 'Settings']],
-          ].map(([title, links]) => (
-            <div key={title}>
-              <p className="text-sm font-black">{title}</p>
-              <ul className="mt-4 space-y-3 text-sm text-slate-500 dark:text-slate-400">
-                {links.map((link) => <li key={link}><a href={link === 'Pricing' ? '#pricing' : '#product'} className="transition hover:text-slate-950 dark:hover:text-white">{link}</a></li>)}
-              </ul>
+          {footerBottomText && (
+            <div className="flex flex-col gap-3 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+              <p>{footerBottomText}</p>
             </div>
-          ))}
-        </div>
-        <div className="flex flex-col gap-3 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} {brandName}. Social publishing, in one flow.</p>
-          <div className="flex gap-5"><span>Privacy</span><span>Terms</span><span>Security</span></div>
-        </div>
-      </footer>
+          )}
+        </footer>
+      )}
 
       {showCookieConsent && (
         <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-4xl rounded-2xl border border-slate-900/10 bg-white/95 p-4 shadow-2xl shadow-slate-900/15 backdrop-blur dark:border-white/10 dark:bg-slate-900/95 sm:flex sm:items-center sm:justify-between sm:gap-5">
@@ -646,6 +695,149 @@ function LogoMark({ logoUrl }) {
   )
 }
 
+function FooterColumn({ column }) {
+  return (
+    <div>
+      {column.title && <p className="text-sm font-black">{column.title}</p>}
+      <div className={column.title ? 'mt-4 space-y-4' : 'space-y-4'}>
+        {column.widgets.map((widget) => (
+          <FooterWidget key={widget.id} widget={widget} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function FooterWidget({ widget }) {
+  if (widget.type === 'text') {
+    if (!widget.text) return null
+    return (
+      <div>
+        {widget.title && <p className="mb-2 text-sm font-black">{widget.title}</p>}
+        <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">{widget.text}</p>
+      </div>
+    )
+  }
+
+  if (widget.type === 'menu') {
+    const links = footerLinksFromWidget(widget)
+    if (!links.length) return null
+    return (
+      <div>
+        {widget.title && <p className="mb-3 text-sm font-black">{widget.title}</p>}
+        <ul className="space-y-3 text-sm text-slate-500 dark:text-slate-400">
+          {links.map((link) => (
+            <li key={link.id || `${link.label}-${link.url}`}>
+              <a href={link.url || '#'} className="transition hover:text-slate-950 dark:hover:text-white">{link.label}</a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  if (widget.type === 'image') {
+    const src = mediaUrl(widget.image_url)
+    if (!src) return null
+    const image = <img src={src} alt={widget.alt || ''} className="max-h-28 w-auto max-w-full rounded-xl object-contain" />
+    return (
+      <div>
+        {widget.title && <p className="mb-3 text-sm font-black">{widget.title}</p>}
+        {widget.url ? <a href={widget.url}>{image}</a> : image}
+      </div>
+    )
+  }
+
+  if (widget.type === 'button') {
+    if (!widget.label) return null
+    const primary = widget.style !== 'secondary'
+    return (
+      <a href={widget.url || '#'} className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold transition ${primary ? 'bg-slate-950 text-white hover:bg-indigo-600 dark:bg-white dark:text-slate-950 dark:hover:bg-indigo-100' : 'border border-slate-900/15 text-slate-700 hover:bg-slate-950 hover:text-white dark:border-white/15 dark:text-slate-200 dark:hover:bg-white dark:hover:text-slate-950'}`}>
+        {widget.label}
+      </a>
+    )
+  }
+
+  if (!widget.label) return null
+  return (
+    <a href={widget.url || '#'} className="inline-flex text-sm font-bold text-indigo-600 transition hover:text-indigo-800 dark:text-indigo-300 dark:hover:text-indigo-100">
+      {widget.label}
+    </a>
+  )
+}
+
+function footerColumnsFromSettings(columns) {
+  if (!Array.isArray(columns)) return []
+  return columns.map((column, index) => ({
+    id: column.id || `footer-column-${index}`,
+    title: publicFooterColumnTitle(column.title),
+    width: column.width || '1fr',
+    widgets: Array.isArray(column.widgets)
+      ? column.widgets.map((widget, widgetIndex) => ({
+        id: widget.id || `footer-widget-${index}-${widgetIndex}`,
+        type: widget.type || 'text',
+        ...widget,
+      })).filter(hasPublicFooterWidgetContent)
+      : column.links
+        ? [{ id: `footer-widget-${index}-links`, type: 'menu', title: column.title || '', links: column.links }]
+        : [],
+  })).filter((column) => column.widgets.length)
+}
+
+function footerLinksFromWidget(widget) {
+  if (Array.isArray(widget.items)) {
+    const links = widget.items
+      .map((item, index) => ({
+        id: item.id || `footer-link-${index}`,
+        label: item.label || '',
+        url: item.url || '#',
+      }))
+      .filter((item) => item.label && !isPlaceholderFooterLink(item))
+    return isOldDefaultFooterMenu(links) ? [] : links
+  }
+
+  const links = String(widget.links || '')
+    .split('\n')
+    .map((row, index) => {
+      const [label, url = '#'] = row.split('|').map((item) => item.trim())
+      return { id: `footer-link-${index}`, label, url }
+    })
+    .filter((item) => item.label && !isPlaceholderFooterLink(item))
+
+  return isOldDefaultFooterMenu(links) ? [] : links
+}
+
+function publicFooterText(value) {
+  return String(value || '').trim()
+}
+
+function publicFooterColumnTitle(value) {
+  const text = String(value || '').trim()
+  return /^new column$/i.test(text) ? '' : text
+}
+
+function hasPublicFooterWidgetContent(widget) {
+  if (widget.type === 'text') return Boolean(String(widget.text || '').trim())
+  if (widget.type === 'menu') return footerLinksFromWidget(widget).length > 0
+  if (widget.type === 'image') return Boolean(String(widget.image_url || '').trim())
+  if (widget.type === 'button') return Boolean(String(widget.label || '').trim()) && !isPlaceholderFooterButton(widget)
+  return Boolean(String(widget.label || '').trim())
+}
+
+function isPlaceholderFooterLink(link) {
+  return String(link.label || '').trim().toLowerCase() === 'label'
+    && String(link.url || '').trim().toLowerCase() === '/url'
+}
+
+function isPlaceholderFooterButton(widget) {
+  return String(widget.label || '').trim().toLowerCase() === 'get started'
+    && ['#', ''].includes(String(widget.url || '').trim())
+}
+
+function isOldDefaultFooterMenu(links) {
+  return false
+}
+
 function SectionHeading({ eyebrow, title, body }) {
   return (
     <div data-reveal className="landing-reveal mx-auto max-w-2xl text-center">
@@ -657,7 +849,7 @@ function SectionHeading({ eyebrow, title, body }) {
 }
 
 function menuItemsFromSettings(items) {
-  if (!Array.isArray(items) || items.length === 0) return null
+  if (!Array.isArray(items) || items.length === 0) return []
 
   const childrenByParent = items.reduce((map, item) => {
     const parent = item.parent || ''
@@ -666,48 +858,124 @@ function menuItemsFromSettings(items) {
   }, {})
 
   const topLevel = childrenByParent[''] || []
-  if (topLevel.length === 0) return null
+  if (topLevel.length === 0) return []
 
   return topLevel.map((item) => {
     const children = childrenByParent[item.id] || []
     return {
       label: item.label || 'Menu item',
       href: item.url || '#',
-      type: item.type === 'mega' ? 'mega' : undefined,
-      items: children.length ? children.map((child) => [
-        child.label || 'Menu item',
-        child.description || `Open ${child.label || 'this page'}.`,
-        child.url || '#',
-      ]) : undefined,
+      type: item.type === 'mega' ? 'mega' : item.type === 'dropdown' ? 'dropdown' : undefined,
+      columns: splitMenuColumns(item.columns),
+      items: children.length ? children.map((child) => ({
+        label: child.label || 'Menu item',
+        description: child.description || `Open ${child.label || 'this page'}.`,
+        href: child.url || '#',
+        icon: child.icon || '',
+        group: child.columns || '',
+      })) : undefined,
     }
   })
 }
 
 function DesktopNavItem({ item }) {
+  const [open, setOpen] = useState(false)
+
   if (!item.items) {
     return <a href={item.href} className="transition hover:text-slate-950 dark:hover:text-white">{item.label}</a>
   }
 
+  const childItems = item.items.map(normalizeNavChild)
+  const groups = item.type === 'mega' ? groupMegaItems(childItems, item.columns) : [{ label: '', items: childItems }]
+
   return (
-    <div className="group relative">
-      <a href={item.href} className="flex items-center gap-1.5 transition hover:text-slate-950 dark:hover:text-white">
+    <div
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
+      }}
+    >
+      <button type="button" onClick={() => setOpen((value) => !value)} className="flex items-center gap-1.5 transition hover:text-slate-950 dark:hover:text-white" aria-expanded={open} aria-haspopup="menu">
         {item.label}
-        <ChevronRight className="h-3.5 w-3.5 rotate-90 text-slate-400 transition group-hover:text-slate-700 dark:group-hover:text-slate-200" />
-      </a>
-      <div className={`pointer-events-none invisible absolute top-full z-50 translate-y-2 pt-5 opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 ${item.type === 'mega' ? 'left-1/2 w-[520px] -translate-x-1/2 group-hover:-translate-x-1/2' : 'left-0 w-72'}`}>
+        <ChevronRight className={`h-3.5 w-3.5 rotate-90 text-slate-400 transition ${open ? 'text-slate-700 dark:text-slate-200' : ''}`} />
+      </button>
+      <div className={`absolute top-full z-50 pt-5 transition duration-200 ${open ? 'pointer-events-auto visible translate-y-0 opacity-100' : 'pointer-events-none invisible translate-y-2 opacity-0'} ${item.type === 'mega' ? 'left-1/2 w-[520px] -translate-x-1/2' : 'left-0 w-72'}`}>
         <div className="overflow-hidden rounded-2xl border border-slate-900/10 bg-white/95 p-2 shadow-2xl shadow-slate-900/15 backdrop-blur dark:border-white/10 dark:bg-slate-900/95">
-          <div className={item.type === 'mega' ? 'grid grid-cols-2 gap-1' : 'space-y-1'}>
-            {item.items.map(([label, description, href]) => (
-              <a key={label} href={href} className="block rounded-xl border-b border-slate-900/5 p-3 transition last:border-b-0 hover:bg-slate-100 dark:border-white/5 dark:hover:bg-white/5">
-                <span className="text-sm font-bold text-slate-900 dark:text-white">{label}</span>
-                <span className="mt-1 block text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">{description}</span>
-              </a>
+          <div className={item.type === 'mega' ? 'grid grid-cols-2 gap-2' : 'space-y-1'}>
+            {groups.map((group, index) => (
+              <div key={group.label || index} className={item.type === 'mega' ? 'space-y-1' : ''}>
+                {group.label && <p className="px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{group.label}</p>}
+                {group.items.map((child) => (
+                  <a key={child.label} href={child.href} className="flex gap-3 rounded-xl border-b border-slate-900/5 p-3 transition last:border-b-0 hover:bg-slate-100 dark:border-white/5 dark:hover:bg-white/5">
+                    <MenuIcon name={child.icon} className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500 dark:text-indigo-300" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold text-slate-900 dark:text-white">{child.label}</span>
+                      <span className="mt-1 block text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">{child.description}</span>
+                    </span>
+                  </a>
+                ))}
+              </div>
             ))}
           </div>
         </div>
       </div>
     </div>
   )
+}
+
+function normalizeNavChild(child) {
+  if (Array.isArray(child)) {
+    return {
+      label: child[0] || 'Menu item',
+      description: child[1] || '',
+      href: child[2] || '#',
+      icon: child[3] || '',
+      group: '',
+    }
+  }
+
+  return {
+    label: child?.label || 'Menu item',
+    description: child?.description || '',
+    href: child?.href || '#',
+    icon: child?.icon || '',
+    group: child?.group || '',
+  }
+}
+
+function splitMenuColumns(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function groupMegaItems(items, configuredColumns = []) {
+  const columns = Array.isArray(configuredColumns) ? configuredColumns : splitMenuColumns(configuredColumns)
+  if (columns.length === 0) {
+    const midpoint = Math.ceil(items.length / 2)
+    return [
+      { label: '', items: items.slice(0, midpoint) },
+      { label: '', items: items.slice(midpoint) },
+    ].filter((group) => group.items.length)
+  }
+
+  const grouped = columns.map((column) => ({
+    label: column,
+    items: items.filter((item) => item.group === column),
+  }))
+  const uncategorized = items.filter((item) => !columns.includes(item.group))
+  if (uncategorized.length) grouped.push({ label: 'More', items: uncategorized })
+  return grouped.filter((group) => group.items.length)
+}
+
+function MenuIcon({ name, className }) {
+  const key = String(name || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+  const Icon = MENU_ICON_COMPONENTS[key] || MENU_ICON_COMPONENTS[String(name || '').trim().toLowerCase()]
+  return Icon ? <Icon className={className} /> : null
 }
 
 function HeroProductPreview({ activeTab, onTabChange }) {

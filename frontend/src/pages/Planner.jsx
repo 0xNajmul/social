@@ -7,6 +7,7 @@ import PlanEditorModal from '../components/planner/PlanEditorModal'
 import { DATA_CHANGED_EVENT, broadcastDataChanged } from '../lib/appEvents'
 import { mediaUrl } from '../lib/media'
 import useInfiniteList from '../hooks/useInfiniteList'
+import usePageSize from '../hooks/usePageSize'
 
 const PLANNER_SORT_OPTIONS = [
   ['newest', 'Newest first'],
@@ -17,7 +18,10 @@ const PLANNER_SORT_OPTIONS = [
 ]
 
 export default function Planner() {
+  const pageSize = usePageSize('planner_notes', 24)
   const [notes, setNotes] = useState(null)
+  const [noteMeta, setNoteMeta] = useState(null)
+  const [loadingMoreNotes, setLoadingMoreNotes] = useState(false)
   const [search, setSearch] = useState('')
   const [view, setView] = useState(() => localStorage.getItem('planner_notes_view') || 'card')
   const [planOpen, setPlanOpen] = useState(false)
@@ -35,23 +39,38 @@ export default function Planner() {
   const [customTags, setCustomTags] = useState(() => loadPlannerTerms('planner_custom_tags'))
   const [deletedCategories, setDeletedCategories] = useState(() => loadPlannerTerms('planner_deleted_categories'))
   const [deletedTags, setDeletedTags] = useState(() => loadPlannerTerms('planner_deleted_tags'))
+  const [tagColors, setTagColors] = useState(() => loadPlannerTermColors('planner_tag_colors'))
   const quickFilterRef = useRef(null)
 
-  const loadNotes = useCallback(() => {
-    api.get('/planner-notes', { params: { limit: 100 } })
-      .then(({ data }) => setNotes(data.data || []))
-      .catch(() => setNotes([]))
-  }, [])
+  const loadNotes = useCallback((page = 1, append = false) => {
+    if (append) setLoadingMoreNotes(true)
+    return api.get('/planner-notes', { params: { per_page: pageSize, page } })
+      .then(({ data }) => {
+        const nextNotes = data.data || []
+        setNotes((current) => append ? [...(current || []), ...nextNotes] : nextNotes)
+        setNoteMeta(data.meta || null)
+      })
+      .catch(() => {
+        if (!append) {
+          setNotes([])
+          setNoteMeta(null)
+        }
+      })
+      .finally(() => {
+        if (append) setLoadingMoreNotes(false)
+      })
+  }, [pageSize])
 
   useEffect(() => {
-    loadNotes()
-    const interval = window.setInterval(loadNotes, 30000)
-    window.addEventListener(DATA_CHANGED_EVENT, loadNotes)
-    window.addEventListener('postflow:refresh-planner', loadNotes)
+    const refresh = () => loadNotes()
+    refresh()
+    const interval = window.setInterval(refresh, 30000)
+    window.addEventListener(DATA_CHANGED_EVENT, refresh)
+    window.addEventListener('postflow:refresh-planner', refresh)
     return () => {
       window.clearInterval(interval)
-      window.removeEventListener(DATA_CHANGED_EVENT, loadNotes)
-      window.removeEventListener('postflow:refresh-planner', loadNotes)
+      window.removeEventListener(DATA_CHANGED_EVENT, refresh)
+      window.removeEventListener('postflow:refresh-planner', refresh)
     }
   }, [loadNotes])
 
@@ -70,6 +89,10 @@ export default function Planner() {
   useEffect(() => {
     storePlannerTerms('planner_deleted_tags', deletedTags)
   }, [deletedTags])
+
+  useEffect(() => {
+    storePlannerTermColors('planner_tag_colors', tagColors)
+  }, [tagColors])
 
   useEffect(() => {
     localStorage.setItem('planner_sort_order', sortOrder)
@@ -116,6 +139,7 @@ export default function Planner() {
 
   const categoryOptions = useMemo(() => mergePlannerTerms(notes, 'categories', customCategories).filter((term) => !deletedCategories.includes(term)), [deletedCategories, notes, customCategories])
   const tagOptions = useMemo(() => mergePlannerTerms(notes, 'tags', customTags).filter((term) => !deletedTags.includes(term)), [deletedTags, notes, customTags])
+  const tagColorOptions = useMemo(() => ({ ...collectPlannerTagColors(notes), ...tagColors }), [notes, tagColors])
 
   const addCustomCategory = (value) => {
     const term = cleanTerm(value)
@@ -130,6 +154,7 @@ export default function Planner() {
     if (!term) return false
     setCustomTags((current) => uniqueTerms([...current, term]))
     setDeletedTags((current) => current.filter((item) => item !== term))
+    setTagColors((current) => current[term] ? current : { ...current, [term]: DEFAULT_PLANNER_TAG_COLORS[0] })
     return true
   }
 
@@ -143,6 +168,11 @@ export default function Planner() {
     setCustomTags((current) => current.filter((item) => item !== term))
     setSelectedTags((current) => current.filter((item) => item !== term))
     setDeletedTags((current) => uniqueTerms([...current, term]))
+    setTagColors((current) => {
+      const next = { ...current }
+      delete next[term]
+      return next
+    })
   }
 
   const toggleCategory = (category) => {
@@ -183,7 +213,18 @@ export default function Planner() {
   }, [notes, search, selectedCategories, selectedTags, sortOrder])
 
   const hasActiveFilters = selectedCategories.length > 0 || selectedTags.length > 0
-  const { hasMore, items: pagedNotes, sentinelRef } = useInfiniteList(filteredNotes)
+  const hasServerMore = Boolean(noteMeta && noteMeta.current_page < noteMeta.last_page)
+  const loadMoreNotes = useCallback(() => {
+    if (!hasServerMore || loadingMoreNotes) return
+    loadNotes(noteMeta.current_page + 1, true)
+  }, [hasServerMore, loadNotes, loadingMoreNotes, noteMeta])
+  const { hasMore, items: pagedNotes, sentinelRef } = useInfiniteList(filteredNotes, {
+    pageSize,
+    hasExternalMore: hasServerMore,
+    externalLoading: loadingMoreNotes,
+    onEndReached: loadMoreNotes,
+    resetKey: [search, sortOrder, selectedCategories.join('|'), selectedTags.join('|')].join('::'),
+  })
 
   if (!notes) return <PageLoader />
 
@@ -270,6 +311,8 @@ export default function Planner() {
                 onDelete={deleteTagTerm}
                 onReset={() => setSelectedTags([])}
                 onClose={() => setQuickFilter(null)}
+                termColors={tagColorOptions}
+                onColorChange={(term, color) => setTagColors((current) => ({ ...current, [term]: color }))}
                 prefix="#"
               />
             </div>
@@ -283,8 +326,8 @@ export default function Planner() {
         </div>
         {filteredNotes.length ? (
           view === 'table'
-            ? <PlannerNotesTable notes={pagedNotes} onEdit={openEditPlan} onDelete={setConfirmDelete} deleteBusy={deleteBusy} />
-            : <PlannerNotesCards notes={pagedNotes} onEdit={openEditPlan} onDelete={setConfirmDelete} deleteBusy={deleteBusy} />
+            ? <PlannerNotesTable notes={pagedNotes} tagColors={tagColorOptions} onEdit={openEditPlan} onDelete={setConfirmDelete} deleteBusy={deleteBusy} />
+            : <PlannerNotesCards notes={pagedNotes} tagColors={tagColorOptions} onEdit={openEditPlan} onDelete={setConfirmDelete} deleteBusy={deleteBusy} />
         ) : (
           <div className="p-4">
             <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-8 text-center dark:border-slate-700">
@@ -330,6 +373,8 @@ export default function Planner() {
         onDeleteTag={deleteTagTerm}
         onResetCategories={() => setSelectedCategories([])}
         onResetTags={() => setSelectedTags([])}
+        tagColors={tagColorOptions}
+        onTagColorChange={(term, color) => setTagColors((current) => ({ ...current, [term]: color }))}
         sortOrder={sortOrder}
         onSortOrderChange={setSortOrder}
       />
@@ -366,6 +411,8 @@ function PlannerFilterDrawer({
   onDeleteTag,
   onResetCategories,
   onResetTags,
+  tagColors,
+  onTagColorChange,
   sortOrder,
   onSortOrderChange,
 }) {
@@ -475,6 +522,8 @@ function PlannerFilterDrawer({
               onAdd={onAddTag}
               onDelete={onDeleteTag}
               onReset={onResetTags}
+              termColors={tagColors}
+              onColorChange={onTagColorChange}
               prefix="#"
             />
           </FilterAccordionCard>
@@ -503,7 +552,19 @@ function ToolbarIconButton({ active, icon: Icon, label, onClick }) {
   )
 }
 
-function QuickTermPopover({ open, title, icon, newLabel, search, onSearch, placeholder, emptyText, terms, selected, onToggle, onAdd, onDelete, onReset, onClose, prefix = '' }) {
+function QuickTermPopover({ open, title, icon: Icon, newLabel, search, onSearch, placeholder, emptyText, terms, selected, onToggle, onAdd, onDelete, onReset, onClose, prefix = '', termColors = {}, onColorChange }) {
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
+  const visibleTerms = terms.filter((term) => term.toLowerCase().includes(search.trim().toLowerCase()))
+
+  const submit = (event) => {
+    event.preventDefault()
+    const term = cleanTerm(draft)
+    if (!term || !onAdd?.(term)) return
+    setDraft('')
+    setAdding(false)
+  }
+
   return (
     <div
       className={clsx(
@@ -511,23 +572,65 @@ function QuickTermPopover({ open, title, icon, newLabel, search, onSearch, place
         open ? 'pointer-events-auto translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-1 scale-95 opacity-0',
       )}
     >
-      <PlannerFilterPanel
-        title={title}
-        icon={icon}
-        newLabel={newLabel}
-        search={search}
-        onSearch={onSearch}
-        placeholder={placeholder}
-        emptyText={emptyText}
-        terms={terms}
-        selected={selected}
-        onToggle={onToggle}
-        onAdd={onAdd}
-        onDelete={onDelete}
-        onReset={onReset}
-        onClose={onClose}
-        prefix={prefix}
-      />
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+              <Icon className="h-4 w-4" />
+            </span>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{selected.length} selected</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {onAdd && (
+              <Button type="button" size="sm" variant="secondary" onClick={() => setAdding((value) => !value)}>
+                <Plus className="h-3.5 w-3.5" /> {newLabel}
+              </Button>
+            )}
+            <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white sm:hidden" aria-label={`Close ${title.toLowerCase()} popup`}>
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {adding && (
+          <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-500 dark:text-slate-400">{newLabel}</span>
+              <div className="flex gap-2">
+                <input
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder={`Add ${title === 'Categories' ? 'category' : 'tag'} name`}
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+                <Button type="submit" size="sm">Add</Button>
+              </div>
+            </label>
+          </form>
+        )}
+
+        <PlannerFilterPanel
+          emptyText={emptyText}
+          onColorChange={onColorChange}
+          onDelete={onDelete}
+          onSearch={onSearch}
+          onToggle={onToggle}
+          placeholder={placeholder}
+          prefix={prefix}
+          search={search}
+          selected={selected}
+          termColors={termColors}
+          terms={terms}
+          visibleTerms={visibleTerms}
+        />
+
+        <div className="flex justify-end border-t border-slate-100 pt-3 dark:border-slate-800">
+          <Button type="button" size="sm" variant="ghost" onClick={onReset}>Reset</Button>
+        </div>
+      </section>
     </div>
   )
 }
@@ -558,55 +661,41 @@ function FilterAccordionCard({ title, description, icon: Icon, open, onToggle, c
 }
 
 function PlannerFilterPanel({
-  title,
-  icon: Icon,
+  emptyText,
   newLabel,
   search,
   onSearch,
   placeholder,
-  emptyText,
   terms,
   selected,
   onToggle,
   onAdd,
+  onColorChange,
   onDelete,
   onReset,
-  onClose,
   prefix = '',
+  termColors = {},
+  visibleTerms: visibleTermsProp,
 }) {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState('')
-  const visibleTerms = terms.filter((term) => term.toLowerCase().includes(search.trim().toLowerCase()))
+  const visibleTerms = visibleTermsProp || terms.filter((term) => term.toLowerCase().includes(search.trim().toLowerCase()))
 
   const submit = (event) => {
     event.preventDefault()
-    if (onAdd(draft)) {
-      setDraft('')
-      setAdding(false)
-    }
+    const term = cleanTerm(draft)
+    if (!term || !onAdd?.(term)) return
+    setDraft('')
+    setAdding(false)
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
-            <Icon className="h-4 w-4" />
-          </span>
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{selected.length} selected</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="space-y-3">
+      {onAdd && (
+        <div className="flex justify-end">
           <Button type="button" size="sm" variant="secondary" onClick={() => setAdding((value) => !value)}><Plus className="h-3.5 w-3.5" /> {newLabel}</Button>
-          {onClose && (
-            <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white sm:hidden" aria-label={`Close ${title.toLowerCase()} popup`}>
-              <X className="h-5 w-5" />
-            </button>
-          )}
         </div>
-      </div>
+      )}
 
       {adding && (
         <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
@@ -616,7 +705,7 @@ function PlannerFilterPanel({
               <input
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder={`Add ${title === 'Categories' ? 'category' : 'tag'} name`}
+                placeholder={`Add ${prefix ? 'tag' : 'category'} name`}
                 className="h-10 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
               />
               <Button type="submit" size="sm">Add</Button>
@@ -634,44 +723,58 @@ function PlannerFilterPanel({
           className="h-10 w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
         />
         {search && (
-          <button type="button" onClick={() => onSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label={`Clear ${title.toLowerCase()} search`}>
+          <button type="button" onClick={() => onSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Clear term search">
             <X className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
 
-      <div className="max-h-[48vh] space-y-2 overflow-y-auto pr-1">
-        {visibleTerms.map((term) => (
-          <div key={term} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-slate-800">
-            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left">
-              <input
-                type="checkbox"
-                checked={selected.includes(term)}
-                onChange={() => onToggle(term)}
-                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                aria-label={`Select ${term}`}
-              />
-              <span className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">{prefix}{term}</span>
-            </label>
-            {onDelete && (
-              <button type="button" onClick={() => onDelete(term)} className="ml-auto rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/30" aria-label={`Delete ${term}`}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        ))}
-        {visibleTerms.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 px-3 py-8 text-center text-sm text-slate-400 dark:border-slate-800">{emptyText}</p>}
+      <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+        {visibleTerms.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">{emptyText}</p>
+        ) : visibleTerms.map((term) => {
+          const checked = selected.includes(term)
+          return (
+            <div key={term} className={clsx('flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition', checked ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-800 dark:bg-brand-950/30 dark:text-brand-200' : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800/60')}>
+              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                <input type="checkbox" checked={checked} onChange={() => onToggle(term)} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" aria-label={`Select ${term}`} />
+                {onColorChange && <span className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: normalizePlannerTagColor(termColors[term]) }} />}
+                <span className="min-w-0 flex-1 truncate">{prefix}{term}</span>
+              </label>
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                {onColorChange && (
+                  <input
+                    type="color"
+                    value={normalizePlannerTagColor(termColors[term])}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => onColorChange(term, event.target.value)}
+                    className="h-7 w-8 cursor-pointer rounded border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900"
+                    title={`Color for ${term}`}
+                    aria-label={`Color for ${term}`}
+                  />
+                )}
+                {onDelete && (
+                  <button type="button" onClick={() => onDelete(term)} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-300" aria-label={`Delete ${term}`} title={`Delete ${term}`}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
-      <div className="flex justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
-        <Button type="button" variant="ghost" onClick={onReset}>Reset</Button>
-        <span className="text-xs text-slate-400">{terms.length} total</span>
-      </div>
-    </section>
+      {onReset && (
+        <div className="flex justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
+          <Button type="button" variant="ghost" onClick={onReset}>Reset</Button>
+          <span className="text-xs text-slate-400">{terms.length} total</span>
+        </div>
+      )}
+    </div>
   )
 }
 
-function PlannerNotesCards({ notes, onEdit, onDelete, deleteBusy }) {
+function PlannerNotesCards({ notes, tagColors = {}, onEdit, onDelete, deleteBusy }) {
   return (
     <div className="columns-1 gap-4 p-4 md:columns-2 xl:columns-4">
       {notes.map((note) => (
@@ -695,7 +798,7 @@ function PlannerNotesCards({ notes, onEdit, onDelete, deleteBusy }) {
           </div>
           <PlannerMediaPreview media={note.meta?.media} />
           <p className="mt-3 line-clamp-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{note.excerpt || 'No preview text.'}</p>
-          <PlanTermsLine categories={note.meta?.categories} tags={note.meta?.tags} tagColors={note.meta?.tag_colors} />
+          <PlanTermsLine categories={note.meta?.categories} tags={note.meta?.tags} tagColors={{ ...tagColors, ...(note.meta?.tag_colors || {}) }} />
           <div className="mt-4 flex items-center justify-between gap-3">
             <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{new Date(note.created_at).toLocaleDateString()}</p>
             <div className="flex gap-1.5">
@@ -726,7 +829,7 @@ function PlanTermsLine({ categories = [], tags = [], tagColors = {}, compact = f
   )
 }
 
-function PlannerNotesTable({ notes, onEdit, onDelete, deleteBusy }) {
+function PlannerNotesTable({ notes, tagColors = {}, onEdit, onDelete, deleteBusy }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[920px] text-left text-sm">
@@ -762,7 +865,7 @@ function PlannerNotesTable({ notes, onEdit, onDelete, deleteBusy }) {
                 </div>
               </td>
               <td className="max-w-md px-5 py-4 text-xs leading-5 text-slate-500 dark:text-slate-400">{note.excerpt || 'No preview text.'}</td>
-              <td className="px-5 py-4"><PlanTermsLine compact categories={note.meta?.categories} tags={note.meta?.tags} tagColors={note.meta?.tag_colors} /></td>
+              <td className="px-5 py-4"><PlanTermsLine compact categories={note.meta?.categories} tags={note.meta?.tags} tagColors={{ ...tagColors, ...(note.meta?.tag_colors || {}) }} /></td>
               <td className="px-5 py-4"><PlannerOwner author={note.author} /></td>
               <td className="whitespace-nowrap px-5 py-4 text-slate-500 dark:text-slate-400">{new Date(note.created_at).toLocaleDateString()}</td>
               <td className="px-5 py-4">
@@ -856,6 +959,28 @@ function storePlannerTerms(key, terms) {
   localStorage.setItem(key, JSON.stringify(uniqueTerms(terms)))
 }
 
+function loadPlannerTermColors(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function storePlannerTermColors(key, colors) {
+  localStorage.setItem(key, JSON.stringify(colors || {}))
+}
+
+function collectPlannerTagColors(notes) {
+  return (notes || []).reduce((colors, note) => {
+    Object.entries(note.meta?.tag_colors || {}).forEach(([term, color]) => {
+      if (/^#[0-9a-f]{6}$/i.test(String(color || ''))) colors[term] = color
+    })
+    return colors
+  }, {})
+}
+
 function loadFilterSections() {
   try {
     return {
@@ -904,7 +1029,13 @@ function cleanTerm(value) {
   return String(value || '').trim().replace(/\s+/g, ' ')
 }
 
+const DEFAULT_PLANNER_TAG_COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#a855f7']
+
+function normalizePlannerTagColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : DEFAULT_PLANNER_TAG_COLORS[0]
+}
+
 function tagColorStyle(value) {
   if (!/^#[0-9a-f]{6}$/i.test(String(value || ''))) return undefined
-  return { backgroundColor: value }
+  return { backgroundColor: normalizePlannerTagColor(value) }
 }

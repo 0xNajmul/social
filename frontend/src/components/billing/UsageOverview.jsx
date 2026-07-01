@@ -2,21 +2,22 @@ import { Building2, CreditCard, Gauge } from 'lucide-react'
 import { LIMIT_LABELS } from '../../lib/billing'
 import { Card } from '../ui'
 
-export default function UsageOverview({ subscription, usage = {}, accountWorkspaces = [] }) {
+export default function UsageOverview({ subscription, usage = {}, accountWorkspaces = [], scope = 'account' }) {
   const usageEntries = Object.entries(usage)
+  const workspaceScope = scope === 'workspace'
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-3">
         <SummaryCard icon={CreditCard} label="Current package" value={subscription?.plan?.name || 'No package'} hint={subscription?.current_period_end ? `Renews ${new Date(subscription.current_period_end).toLocaleDateString()}` : 'No renewal date'} />
-        <SummaryCard icon={Building2} label="Owned workspaces" value={usage.workspaces?.used ?? accountWorkspaces.length} hint={`${usage.workspaces?.remaining ?? 'Unlimited'} remaining`} />
+        <SummaryCard icon={Building2} label={workspaceScope ? 'This workspace' : 'Owned workspaces'} value={workspaceScope ? accountWorkspaces[0]?.name || 'Workspace' : usage.workspaces?.used ?? accountWorkspaces.length} hint={workspaceScope ? accountWorkspaces[0]?.slug || 'Current workspace' : `${usage.workspaces?.remaining ?? 'Unlimited'} remaining`} />
         <SummaryCard icon={Gauge} label="Storage used" value={`${usage.storage_mb?.used ?? 0} MB`} hint={formatRemaining(usage.storage_mb)} />
       </div>
 
       <Card className="overflow-hidden">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-          <h2 className="font-semibold text-slate-900 dark:text-white">Account package usage</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Usage is counted across the workspaces owned by your account.</p>
+          <h2 className="font-semibold text-slate-900 dark:text-white">{workspaceScope ? 'Workspace package usage' : 'Account package usage'}</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{workspaceScope ? 'Usage below is limited to this workspace.' : 'Usage is counted across the workspaces owned by your account.'}</p>
         </div>
         <div className="grid gap-5 p-5 md:grid-cols-2 xl:grid-cols-4">
           {usageEntries.map(([key, metric]) => <UsageMeter key={key} label={LIMIT_LABELS[key] || key.replace(/_/g, ' ')} metric={metric} />)}
@@ -26,7 +27,7 @@ export default function UsageOverview({ subscription, usage = {}, accountWorkspa
 
       <Card className="overflow-hidden">
         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-          <h2 className="font-semibold text-slate-900 dark:text-white">Workspaces using this package</h2>
+          <h2 className="font-semibold text-slate-900 dark:text-white">{workspaceScope ? 'Current workspace' : 'Workspaces using this package'}</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[780px] text-left text-sm">

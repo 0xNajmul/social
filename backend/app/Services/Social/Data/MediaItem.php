@@ -29,6 +29,10 @@ class MediaItem
      */
     public function absolutePath(): ?string
     {
+        if ($this->path === '') {
+            return null;
+        }
+
         return Storage::disk($this->disk)->path($this->path);
     }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-import { Users, Building2, Share2, FileText, DollarSign, Activity } from 'lucide-react'
+import { Users, Building2, Share2, FileText, DollarSign, Activity, ClipboardList, Image as ImageIcon, Workflow } from 'lucide-react'
 import api from '../lib/api'
 import { Card, StatCard, PageLoader, Badge } from '../components/ui'
 
@@ -50,6 +50,9 @@ export default function Dashboard() {
         <StatCard label="Workspaces" value={stats.workspaces} icon={Building2} />
         <StatCard label="Social accounts" value={stats.social_accounts} icon={Share2} />
         <StatCard label="Posts" value={stats.posts} icon={FileText} hint={`${stats.published_posts} published`} />
+        <StatCard label="Planner notes" value={stats.planner_notes} icon={ClipboardList} />
+        <StatCard label="Media assets" value={stats.media_assets} icon={ImageIcon} />
+        <StatCard label="Automations" value={stats.automations} icon={Workflow} />
         <StatCard label="MRR" value={`$${revenue.mrr}`} icon={DollarSign} hint={`$${revenue.arr} ARR`} />
         <StatCard label="Active subscriptions" value={stats.active_subscriptions} icon={Activity} />
         <StatCard label="Queue pending" value={health.queue_pending} icon={Activity} />

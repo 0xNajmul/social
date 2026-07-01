@@ -72,12 +72,12 @@ export default function QuickActions() {
       setModalDirty(false)
     }
 
-    document.addEventListener('mousedown', close)
+    document.addEventListener('mousedown', close, true)
     window.addEventListener('postflow:quick-action', openFromPage)
     window.addEventListener('postflow:request-navigation', requestedNavigation)
     window.addEventListener('postflow:force-close-popup', forceClosePopup)
     return () => {
-      document.removeEventListener('mousedown', close)
+      document.removeEventListener('mousedown', close, true)
       window.removeEventListener('postflow:quick-action', openFromPage)
       window.removeEventListener('postflow:request-navigation', requestedNavigation)
       window.removeEventListener('postflow:force-close-popup', forceClosePopup)

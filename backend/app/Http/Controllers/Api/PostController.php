@@ -37,7 +37,7 @@ class PostController extends Controller
             ->when($request->to, fn ($q, $d) => $q->where('scheduled_at', '<=', $d))
             ->when($request->search, fn ($q, $s) => $q->where('content', 'like', "%{$s}%"))
             ->latest()
-            ->paginate($request->integer('per_page', 20));
+            ->paginate(max(1, min($request->integer('per_page', 20), 100)));
 
         return PostResource::collection($posts)->response();
     }

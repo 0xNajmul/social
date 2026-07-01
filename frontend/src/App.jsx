@@ -22,6 +22,10 @@ const Billing = lazy(() => import('./pages/Billing'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Developer = lazy(() => import('./pages/Developer'))
 const Profile = lazy(() => import('./pages/Profile'))
+const PublicProfileEditor = lazy(() => import('./pages/PublicProfileEditor'))
+const PublicProfileView = lazy(() => import('./pages/PublicProfileView'))
+const NewsList = lazy(() => import('./pages/NewsList'))
+const NewsDetail = lazy(() => import('./pages/NewsDetail'))
 const Planner = lazy(() => import('./pages/Planner'))
 const Organizer = lazy(() => import('./pages/Organizer'))
 const Workspaces = lazy(() => import('./pages/Workspaces'))
@@ -53,6 +57,8 @@ export default function App() {
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/impersonate" element={<AuthTokenLanding />} />
             <Route path="/auth/google/callback" element={<AuthTokenLanding />} />
+            <Route path="/news" element={<NewsList />} />
+            <Route path="/news/:slug" element={<NewsDetail />} />
             <Route path="/invitations/:token" element={<ProtectedRoute><InvitationAccept /></ProtectedRoute>} />
 
             <Route
@@ -83,11 +89,13 @@ export default function App() {
               <Route path="settings" element={<Settings />} />
               <Route path="developer" element={<Developer />} />
               <Route path="profile" element={<Profile />} />
+              <Route path="public-profile" element={<PublicProfileEditor />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="invite" element={<InviteEarn />} />
               <Route path="integrations" element={<Integrations />} />
             </Route>
 
+            <Route path="/:handle" element={<PublicProfileView />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </Suspense>

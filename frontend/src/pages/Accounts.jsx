@@ -9,6 +9,7 @@ import { AccountIcon } from '../components/PlatformBadge'
 import AccountConnectModal from '../components/accounts/AccountConnectModal'
 import { DATA_CHANGED_EVENT } from '../lib/appEvents'
 import useInfiniteList from '../hooks/useInfiniteList'
+import usePageSize from '../hooks/usePageSize'
 
 const HIDDEN_COMPOSE_ACCOUNTS_KEY = 'postflow_hidden_compose_accounts'
 const ACCOUNT_STATUS_FILTERS = [
@@ -20,6 +21,7 @@ const ACCOUNT_STATUS_FILTERS = [
 
 export default function Accounts() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const pageSize = usePageSize('accounts', 36)
   const [accounts, setAccounts] = useState(null)
   const [platforms, setPlatforms] = useState([])
   const [showConnect, setShowConnect] = useState(false)
@@ -169,7 +171,7 @@ export default function Accounts() {
       })
   }, [accountSearch, accountStatusFilter, accounts])
 
-  const { hasMore, items: pagedAccounts, sentinelRef } = useInfiniteList(visibleAccounts)
+  const { hasMore, items: pagedAccounts, sentinelRef } = useInfiniteList(visibleAccounts, { pageSize })
 
   if (!accounts) return <PageLoader />
 
@@ -184,8 +186,8 @@ export default function Accounts() {
       </div>
 
       <Card className="overflow-visible">
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-800 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full xl:w-80">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-800 lg:flex-row lg:items-center">
+          <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               value={accountSearch}
@@ -199,7 +201,7 @@ export default function Accounts() {
               </button>
             )}
           </div>
-          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:ml-auto lg:w-auto lg:justify-end">
+          <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end lg:w-auto">
             <select
               value={accountStatusFilter}
               onChange={(event) => setAccountStatusFilter(event.target.value)}

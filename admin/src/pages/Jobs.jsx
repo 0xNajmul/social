@@ -5,18 +5,21 @@ import { Card, Button, Badge, PageLoader } from '../components/ui'
 
 const TABS = [
   { key: 'scheduled', label: 'Scheduled' },
+  { key: 'pendingJobs', label: 'Pending queue' },
   { key: 'failedPosts', label: 'Failed posts' },
   { key: 'failedJobs', label: 'Failed queue jobs' },
 ]
 
 export default function Jobs() {
   const [scheduled, setScheduled] = useState(null)
+  const [pendingJobs, setPendingJobs] = useState([])
   const [failedPosts, setFailedPosts] = useState([])
   const [failedJobs, setFailedJobs] = useState([])
   const [tab, setTab] = useState('scheduled')
 
   const load = () => {
     api.get('/admin/jobs/scheduled').then(({ data }) => setScheduled(data.data))
+    api.get('/admin/jobs/pending').then(({ data }) => setPendingJobs(data.data))
     api.get('/admin/jobs/failed-posts').then(({ data }) => setFailedPosts(data.data))
     api.get('/admin/jobs/failed').then(({ data }) => setFailedJobs(data.data))
   }
@@ -26,7 +29,7 @@ export default function Jobs() {
 
   if (!scheduled) return <PageLoader />
 
-  const counts = { scheduled: scheduled.length, failedPosts: failedPosts.length, failedJobs: failedJobs.length }
+  const counts = { scheduled: scheduled.length, pendingJobs: pendingJobs.length, failedPosts: failedPosts.length, failedJobs: failedJobs.length }
 
   return (
     <div className="space-y-6">
@@ -54,10 +57,28 @@ export default function Jobs() {
 
       <Card className="overflow-hidden">
         {tab === 'scheduled' && <ScheduledTable rows={scheduled} />}
+        {tab === 'pendingJobs' && <PendingJobsTable rows={pendingJobs} />}
         {tab === 'failedPosts' && <FailedPostsTable rows={failedPosts} />}
         {tab === 'failedJobs' && <FailedJobsTable rows={failedJobs} />}
       </Card>
     </div>
+  )
+}
+
+function PendingJobsTable({ rows }) {
+  return (
+    <Table columns={['Job', 'Queue', 'Attempts', 'Available at', 'Created']}>
+      {rows.map((row) => (
+        <tr key={row.id} className="border-t border-slate-800">
+          <td className="px-3 py-2"><p className="max-w-lg truncate text-white">{row.display_name || 'Queued job'}</p></td>
+          <td className="px-3 py-2 text-slate-400">{row.queue || '-'}</td>
+          <td className="px-3 py-2 text-slate-400">{row.attempts ?? 0}</td>
+          <td className="px-3 py-2 text-slate-400">{row.available_at ? new Date(row.available_at).toLocaleString() : '-'}</td>
+          <td className="px-3 py-2 text-slate-500">{row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</td>
+        </tr>
+      ))}
+      {rows.length === 0 && <EmptyRow colSpan={5} text="No pending queue jobs." />}
+    </Table>
   )
 }
 

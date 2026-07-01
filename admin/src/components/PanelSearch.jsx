@@ -8,6 +8,7 @@ const ADMIN_SEARCH_ITEMS = [
   { label: 'Users', to: '/users', keywords: 'customers accounts members' },
   { label: 'Roles', to: '/roles', keywords: 'admin permissions access control' },
   { label: 'Posts', to: '/posts', keywords: 'scheduled published content filter' },
+  { label: 'News', to: '/news', keywords: 'article blog announcement category seo publish draft' },
   { label: 'Plans', to: '/plans', keywords: 'pricing packages billing' },
   { label: 'Workspaces', to: '/workspaces', keywords: 'teams owners organizations' },
   { label: 'Jobs & Queue', to: '/jobs', keywords: 'scheduled failed queue' },

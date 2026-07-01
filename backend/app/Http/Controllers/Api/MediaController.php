@@ -22,7 +22,7 @@ class MediaController extends Controller
             ->when($request->type, fn ($q, $t) => $q->where('type', $t))
             ->when($request->search, fn ($q, $s) => $q->where('original_name', 'like', "%{$s}%"))
             ->latest()
-            ->paginate($request->integer('per_page', 40));
+            ->paginate(max(1, min($request->integer('per_page', 40), 100)));
 
         return MediaResource::collection($assets)->response();
     }

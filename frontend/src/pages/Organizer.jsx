@@ -8,29 +8,27 @@ import {
   CircleDashed,
   Clock3,
   Columns3,
-  Edit3,
-  Info,
   FileText,
   ListFilter,
   Search,
-  Save,
   Table2,
   Timeline,
-  Trash2,
   UserRound,
   X,
 } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
 import PlatformBadge from '../components/PlatformBadge'
-import { Badge, Button, Card, EmptyState, Modal, PageLoader, ConfirmDialog } from '../components/ui'
+import { Badge, Button, Card, EmptyState, PageLoader } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import Calendar from './Calendar'
 import DateTimeField from '../components/DateTimeField'
+import PostDetailsModal from '../components/posts/PostDetailsModal'
+import PlanEditorModal from '../components/planner/PlanEditorModal'
 import { DATA_CHANGED_EVENT, broadcastDataChanged } from '../lib/appEvents'
 import { HOLIDAY_COUNTRIES, HOLIDAY_SOURCE_GROUPS, normalizeHolidaySettings } from '../lib/holidays'
-import { fromLocalDateTimeInput, toLocalDateTimeInput } from '../lib/datetime'
 import useInfiniteList from '../hooks/useInfiniteList'
+import usePageSize from '../hooks/usePageSize'
 
 const GROUPS = {
   pending: {
@@ -73,22 +71,18 @@ const VIEWS = [
 const VALID_VIEWS = VIEWS.map((view) => view.key)
 const VALID_FILTERS = DRAWER_FILTERS.map((filter) => filter.key)
 const DEFAULT_VISIBLE_VIEWS = [...VALID_VIEWS]
-const STATUS_OPTIONS = [
-  ['draft', 'Draft'],
-  ['pending_approval', 'Pending approval'],
-  ['approved', 'Approved'],
-  ['scheduled', 'Scheduled'],
-  ['published', 'Published'],
-  ['failed', 'Failed'],
-  ['cancelled', 'Cancelled'],
-]
 const GROUP_STATUS = { pending: 'draft', progress: 'approved', completed: 'published' }
 
 export default function Organizer() {
   const { activeWorkspace } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
+  const postPageSize = usePageSize('organizer_posts', 30)
+  const plannerPageSize = usePageSize('planner_notes', 24)
   const [posts, setPosts] = useState(null)
+  const [postMeta, setPostMeta] = useState(null)
   const [plannerNotes, setPlannerNotes] = useState([])
+  const [plannerMeta, setPlannerMeta] = useState(null)
+  const [loadingMoreOrganizer, setLoadingMoreOrganizer] = useState(false)
   const [accounts, setAccounts] = useState([])
   const [filter, setFilter] = useState(() => validParam(searchParams.get('filter'), VALID_FILTERS, 'all'))
   const [selectedGroups, setSelectedGroups] = useState(() => {
@@ -116,26 +110,37 @@ export default function Organizer() {
   const [reviewBusy, setReviewBusy] = useState('')
   const [dragBusy, setDragBusy] = useState('')
 
-  const loadOrganizerData = useCallback(() => {
+  const loadOrganizerData = useCallback((page = 1, append = false) => {
     let active = true
+    if (append) setLoadingMoreOrganizer(true)
     Promise.allSettled([
-      api.get('/posts', { params: { per_page: 100 } }),
-      api.get('/planner-notes', { params: { limit: 100 } }),
+      api.get('/posts', { params: { per_page: postPageSize, page } }),
+      api.get('/planner-notes', { params: { per_page: plannerPageSize, page } }),
       api.get('/social/accounts'),
     ]).then(([postsResult, notesResult, accountsResult]) => {
       if (!active) return
 
       if (postsResult.status === 'fulfilled') {
-        setPosts(postsResult.value.data.data || [])
+        const nextPosts = postsResult.value.data.data || []
+        setPosts((current) => append ? [...(current || []), ...nextPosts] : nextPosts)
+        setPostMeta(postsResult.value.data.meta || null)
       } else {
-        setPosts([])
-        setError('Could not load your posting plan.')
+        if (!append) {
+          setPosts([])
+          setPostMeta(null)
+          setError('Could not load your posting plan.')
+        }
       }
 
       if (notesResult.status === 'fulfilled') {
-        setPlannerNotes(notesResult.value.data.data || [])
+        const nextNotes = notesResult.value.data.data || []
+        setPlannerNotes((current) => append ? [...(current || []), ...nextNotes] : nextNotes)
+        setPlannerMeta(notesResult.value.data.meta || null)
       } else {
-        setPlannerNotes([])
+        if (!append) {
+          setPlannerNotes([])
+          setPlannerMeta(null)
+        }
       }
 
       if (accountsResult.status === 'fulfilled') {
@@ -143,9 +148,11 @@ export default function Organizer() {
       } else {
         setAccounts([])
       }
+    }).finally(() => {
+      if (append && active) setLoadingMoreOrganizer(false)
     })
     return () => { active = false }
-  }, [])
+  }, [plannerPageSize, postPageSize])
 
   const syncOrganizerUrl = (nextView, nextFilter) => {
     const params = new URLSearchParams(searchParams)
@@ -191,12 +198,16 @@ export default function Organizer() {
   }
 
   useEffect(() => {
-    const cancelInitial = loadOrganizerData()
+    let cancelInitial
+    const initialTimer = window.setTimeout(() => {
+      cancelInitial = loadOrganizerData()
+    }, 0)
     const refresh = () => loadOrganizerData()
     const interval = window.setInterval(refresh, 30000)
     window.addEventListener(DATA_CHANGED_EVENT, refresh)
     window.addEventListener('postflow:refresh-organizer', refresh)
     return () => {
+      window.clearTimeout(initialTimer)
       cancelInitial?.()
       window.clearInterval(interval)
       window.removeEventListener(DATA_CHANGED_EVENT, refresh)
@@ -312,7 +323,35 @@ export default function Organizer() {
       .filter((item) => !query || `${item.title || ''} ${item.content || ''} ${item.author?.name || ''} ${item.status_label || ''}`.toLowerCase().includes(query))
       .sort((a, b) => compareItems(a, b, sortOrder))
   }, [approvalFilter, dateFilter, organizerItems, search, selectedAccountIds, selectedCategories, selectedGroups, sortOrder])
-  const { hasMore, items: pagedItems, sentinelRef } = useInfiniteList(filteredItems)
+  const hasServerMore = Boolean(
+    (postMeta && postMeta.current_page < postMeta.last_page)
+      || (plannerMeta && plannerMeta.current_page < plannerMeta.last_page),
+  )
+  const loadMoreOrganizer = useCallback(() => {
+    if (!hasServerMore || loadingMoreOrganizer) return
+    const nextPostPage = postMeta?.current_page || 1
+    const nextPlannerPage = plannerMeta?.current_page || 1
+    loadOrganizerData(Math.max(nextPostPage, nextPlannerPage) + 1, true)
+  }, [hasServerMore, loadOrganizerData, loadingMoreOrganizer, plannerMeta, postMeta])
+  const { hasMore, items: pagedItems, sentinelRef } = useInfiniteList(filteredItems, {
+    pageSize: Math.max(postPageSize, plannerPageSize),
+    hasExternalMore: hasServerMore,
+    externalLoading: loadingMoreOrganizer,
+    onEndReached: loadMoreOrganizer,
+    resetKey: [
+      search,
+      filter,
+      selectedGroups.join('|'),
+      approvalFilter,
+      selectedAccountIds.join('|'),
+      selectedCategories.join('|'),
+      dateFilter.from,
+      dateFilter.to,
+      sortOrder,
+      showPlannerData,
+      showSocialData,
+    ].join('::'),
+  })
 
   const reviewPost = async (post, decision) => {
     if (post.kind === 'planner') return
@@ -321,8 +360,9 @@ export default function Organizer() {
     setError('')
     try {
       await api.post(`/posts/${post.id}/review`, { decision })
-      const { data } = await api.get('/posts', { params: { per_page: 100 } })
+      const { data } = await api.get('/posts', { params: { per_page: postPageSize } })
       setPosts(data.data || [])
+      setPostMeta(data.meta || null)
       broadcastDataChanged({ resource: 'posts', action: 'reviewed', item: post })
     } catch (reviewError) {
       setError(reviewError.response?.data?.message || 'Could not review this post.')
@@ -502,19 +542,36 @@ export default function Organizer() {
         onHolidaySettingsChange={setHolidaySettings}
       />
 
-      <OrganizerItemModal
-        key={selectedItem ? `${selectedItem.kind}-${selectedItem.id}` : 'empty'}
-        item={selectedItem}
-        onClose={() => setSelectedItem(null)}
-        onChanged={updateItemFromModal}
-        onDeleted={(item) => {
-          removeItem(item)
-          setSelectedItem(null)
-        }}
-        canApprove={canApprove}
-        onReview={reviewPost}
-        reviewBusy={reviewBusy}
-      />
+      {selectedItem?.kind === 'planner' && (
+        <PlanEditorModal
+          key={`planner-${selectedItem.id}`}
+          open
+          note={selectedItem.note || selectedItem}
+          onClose={() => setSelectedItem(null)}
+          onSaved={(savedNote) => {
+            upsertPlanner(savedNote)
+            setSelectedItem(null)
+          }}
+        />
+      )}
+
+      {selectedItem && selectedItem.kind !== 'planner' && selectedItem.kind !== 'holiday' && (
+        <PostDetailsModal
+          key={`post-${selectedItem.id}`}
+          post={selectedItem}
+          postId={selectedItem.id}
+          open
+          onClose={() => setSelectedItem(null)}
+          onChanged={(updatedPost) => {
+            const nextPost = { ...updatedPost, kind: 'post' }
+            updateItemFromModal(nextPost)
+          }}
+          onDeleted={(deletedPost) => {
+            removeItem({ ...deletedPost, kind: 'post' })
+            setSelectedItem(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1099,193 +1156,6 @@ function SwitchRow({ label, description, checked, onChange }) {
   )
 }
 
-function OrganizerItemModal({ item, onClose, onChanged, onDeleted, canApprove, onReview, reviewBusy }) {
-  const [editing, setEditing] = useState(false)
-  const [metaOpen, setMetaOpen] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [form, setForm] = useState(() => itemForm(item))
-
-  if (!item) return null
-
-  const isPlanner = item.kind === 'planner'
-  const canDelete = isPlanner || item.status !== 'publishing'
-
-  const save = async (event) => {
-    event.preventDefault()
-    setBusy(true)
-    try {
-      if (isPlanner) {
-        const { data } = await api.put(`/planner-notes/${item.id}`, {
-          title: item.note?.title || item.title || 'Untitled plan',
-          content_html: item.note?.content_html || `<p>${escapeHtml(item.content || '')}</p>`,
-          ai_prompt: item.note?.meta?.ai_prompt || '',
-          scheduled_at: fromLocalDateTimeInput(form.scheduled_at),
-          categories: splitList(form.categories),
-          status: form.status,
-        })
-        onChanged(noteToOrganizerItem(data.data))
-        broadcastDataChanged({ resource: 'planner-notes', action: 'updated', item: data.data })
-      } else {
-        const { data } = await api.put(`/posts/${item.id}/status`, {
-          status: form.status,
-          scheduled_at: fromLocalDateTimeInput(form.scheduled_at),
-        })
-        onChanged({ ...data.data, kind: 'post' })
-        broadcastDataChanged({ resource: 'posts', action: 'updated', item: data.data })
-      }
-      setEditing(false)
-    } catch (error) {
-      window.alert(error.response?.data?.message || 'Could not save this item.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const remove = async () => {
-    setBusy(true)
-    try {
-      if (isPlanner) await api.delete(`/planner-notes/${item.id}`)
-      else await api.delete(`/posts/${item.id}`)
-      onDeleted(item)
-      broadcastDataChanged({ resource: isPlanner ? 'planner-notes' : 'posts', action: 'deleted', item })
-    } catch (error) {
-      window.alert(error.response?.data?.message || 'Could not delete this item.')
-    } finally {
-      setBusy(false)
-      setConfirmDelete(false)
-    }
-  }
-
-  return (
-    <Modal
-      open={Boolean(item)}
-      title={item.title || (isPlanner ? 'Planner details' : 'Post details')}
-      description={`${isPlanner ? 'Planner note' : 'Post'} details, status, schedule, and metadata.`}
-      onClose={onClose}
-      size="xl"
-      fullscreenable
-    >
-      <div className={clsx('grid min-h-[520px]', metaOpen ? 'lg:grid-cols-[1fr_320px]' : 'grid-cols-1')}>
-        <form onSubmit={save} className="space-y-5 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
-              <StageBadges post={item} />
-              <Platforms post={item} />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" variant="secondary" onClick={() => setEditing((value) => !value)}><Edit3 className="h-3.5 w-3.5" /> Edit</Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setMetaOpen((value) => !value)}><Info className="h-3.5 w-3.5" /> Meta</Button>
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Content</p>
-            <p className="whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
-              {item.content || 'No content yet.'}
-            </p>
-          </div>
-
-          {editing && (
-            <div className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40 sm:grid-cols-2">
-              <SelectField
-                label={isPlanner ? 'Planner status' : 'Post status'}
-                value={form.status}
-                onChange={(value) => setForm({ ...form, status: value })}
-                options={isPlanner ? [['pending', 'Pending'], ['progress', 'Progress'], ['completed', 'Completed']] : STATUS_OPTIONS}
-              />
-              <DateTimeField label="Schedule" type="datetime-local" value={form.scheduled_at} onChange={(event) => setForm({ ...form, scheduled_at: event.target.value })} />
-              {isPlanner && <InputLike label="Categories" value={form.categories} onChange={(value) => setForm({ ...form, categories: value })} placeholder="Campaign, Launch, Ideas" />}
-            </div>
-          )}
-
-          {canApprove && !isPlanner && item.status === 'pending_approval' && (
-            <div className="flex flex-wrap gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/20">
-              <Button type="button" size="sm" loading={reviewBusy === `approved-${item.id}`} disabled={Boolean(reviewBusy)} onClick={() => onReview(item, 'approved')}><Check className="h-3.5 w-3.5" /> Approve</Button>
-              <Button type="button" size="sm" variant="secondary" loading={reviewBusy === `rejected-${item.id}`} disabled={Boolean(reviewBusy)} onClick={() => onReview(item, 'rejected')}><X className="h-3.5 w-3.5" /> Reject</Button>
-            </div>
-          )}
-
-          <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
-            <Button type="button" variant="ghost" className="text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40" disabled={!canDelete || busy} onClick={() => setConfirmDelete(true)}>
-              <Trash2 className="h-4 w-4" /> Delete
-            </Button>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
-              <Button type="submit" loading={busy} disabled={!editing}><Save className="h-4 w-4" /> Save changes</Button>
-            </div>
-          </div>
-        </form>
-
-        {metaOpen && (
-          <aside className="border-t border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950/50 lg:border-l lg:border-t-0">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900 dark:text-white">Metadata</h3>
-              <button type="button" onClick={() => setMetaOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="grid gap-3">
-              <DetailBox label="Owner" value={item.author?.name || 'Unknown'} />
-              <DetailBox label="Date" value={planDate(item)} />
-              <DetailBox label="Source" value={isPlanner ? 'Planner' : 'Social post'} />
-              <DetailBox label="Status" value={item.status_label || item.status || 'Unknown'} />
-              <DetailBox label="Created" value={item.created_at ? new Date(item.created_at).toLocaleString() : 'Unknown'} />
-              <DetailBox label="Updated" value={item.updated_at ? new Date(item.updated_at).toLocaleString() : 'Unknown'} />
-            </div>
-          </aside>
-        )}
-      </div>
-      <ConfirmDialog
-        open={confirmDelete}
-        title={isPlanner ? 'Delete planner note' : 'Delete post'}
-        description={`Delete "${item.title || item.content || 'this item'}"? This action cannot be undone.`}
-        confirmLabel={isPlanner ? 'Delete planner' : 'Delete post'}
-        loading={busy}
-        onClose={() => setConfirmDelete(false)}
-        onConfirm={remove}
-      />
-    </Modal>
-  )
-}
-
-function itemForm(item) {
-  if (!item) return { status: '', scheduled_at: '', categories: '' }
-
-  return {
-    status: item.kind === 'planner' ? groupFor(item) : item.status || 'draft',
-    scheduled_at: toLocalDateTimeInput(item.scheduled_at || ''),
-    categories: (item.note?.meta?.categories || []).join(', '),
-  }
-}
-
-function SelectField({ label, value, onChange, options }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-        {options.map(([key, labelText]) => <option key={key} value={key}>{labelText}</option>)}
-      </select>
-    </label>
-  )
-}
-
-function InputLike({ label, value, onChange, placeholder }) {
-  return (
-    <label className="block sm:col-span-2">
-      <span className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
-      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
-    </label>
-  )
-}
-
-function DetailBox({ label, value }) {
-  return (
-    <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{value}</p>
-    </div>
-  )
-}
-
 function noteToOrganizerItem(note) {
   return {
     uid: `planner-${note.id}`,
@@ -1376,10 +1246,6 @@ function itemDateTime(item) {
   if (!value) return null
   const time = new Date(value).getTime()
   return Number.isNaN(time) ? null : time
-}
-
-function splitList(value) {
-  return String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
 }
 
 function escapeHtml(value) {

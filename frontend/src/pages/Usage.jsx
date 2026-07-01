@@ -33,8 +33,9 @@ export function UsageWorkspacePanel({ embedded = false }) {
 
       <UsageOverview
         subscription={payload.data}
-        usage={payload.usage || {}}
-        accountWorkspaces={payload.workspaces || []}
+        usage={embedded ? payload.workspace_usage || {} : payload.usage || {}}
+        accountWorkspaces={embedded ? [payload.workspace].filter(Boolean) : payload.workspaces || []}
+        scope={embedded ? 'workspace' : 'account'}
       />
     </div>
   )

@@ -17,6 +17,8 @@ class PlannerNoteController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $perPage = max(1, min($request->integer('per_page', $request->integer('limit', 12)), 100));
+
         $notes = workspace()->plannerNotes()
             ->with('author')
             ->when($request->search, function ($query, string $search) {
@@ -26,10 +28,26 @@ class PlannerNoteController extends Controller
                 });
             })
             ->latest()
-            ->limit($request->integer('limit', 12))
-            ->get();
+            ->paginate($perPage);
 
-        return response()->json(['data' => $notes->map(fn (PlannerNote $note) => $this->serialize($note))->values()]);
+        return response()->json([
+            'data' => collect($notes->items())->map(fn (PlannerNote $note) => $this->serialize($note))->values(),
+            'links' => [
+                'first' => $notes->url(1),
+                'last' => $notes->url($notes->lastPage()),
+                'prev' => $notes->previousPageUrl(),
+                'next' => $notes->nextPageUrl(),
+            ],
+            'meta' => [
+                'current_page' => $notes->currentPage(),
+                'from' => $notes->firstItem(),
+                'last_page' => $notes->lastPage(),
+                'path' => $notes->path(),
+                'per_page' => $notes->perPage(),
+                'to' => $notes->lastItem(),
+                'total' => $notes->total(),
+            ],
+        ]);
     }
 
     public function store(Request $request): JsonResponse

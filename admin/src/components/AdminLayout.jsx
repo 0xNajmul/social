@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Activity, BarChart3, Bell, Bot, Building2, ChevronDown, CircleUserRound, ClipboardList,
   FilePlus2, History, Image, LayoutDashboard, ListChecks, LogOut, Mail, Menu, Moon,
-  Package, Plus, ReceiptText, Rss, Settings, ShieldAlert, Send, Sun, UserCog, UserRound,
+  Newspaper, Package, Plus, ReceiptText, Rss, Settings, ShieldAlert, Send, Sun, UserCog, UserRound,
   Users, WalletCards, Workflow, X,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -25,6 +25,7 @@ const NAV = [
   },
   { to: '/posts', label: 'Posts', icon: Send },
   { to: '/feed', label: 'Feed', icon: Rss },
+  { to: '/news', label: 'News', icon: Newspaper },
   { to: '/planners', label: 'Planners', icon: ClipboardList },
   { to: '/media', label: 'Media Library', icon: Image },
   { to: '/automations', label: 'Automations', icon: Workflow },
@@ -38,7 +39,7 @@ const NAV = [
       { to: '/reports/notifications', label: 'Notifications', icon: Bell },
       { to: '/reports/affiliate-incomes', label: 'Affiliate incomes', icon: WalletCards },
       { to: '/reports/login-history', label: 'Login history', icon: History },
-      { to: '/reports/ai-usage-history', label: 'AI usage history', icon: Bot },
+      { to: '/reports/ai-usage', label: 'AI usage', icon: Bot },
       { to: '/reports/email-history', label: 'Email history', icon: Mail },
       { to: '/reports/user-transaction-history', label: 'User transaction history', icon: ReceiptText },
       { to: '/reports/activity-logs', label: 'Activity logs', icon: Activity },
@@ -52,6 +53,7 @@ const QUICK_ACTIONS = [
   { to: '/users', label: 'Add user', icon: Users },
   { to: '/roles', label: 'New role', icon: UserCog },
   { to: '/posts', label: 'Review posts', icon: Send },
+  { to: '/news', label: 'Add news', icon: Newspaper },
   { to: '/plans', label: 'New plan', icon: Package },
   { to: '/workspaces', label: 'New workspace', icon: Building2 },
   { to: '/settings/general', label: 'Update settings', icon: Settings },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Wand2, Hash, Sparkles, Send, CalendarClock, Save, AlertCircle, FolderOpen, PlugZap, Smile, CheckCircle2, BarChart3, ExternalLink, RotateCcw, Search, X, List, Tags } from 'lucide-react'
 import api from '../lib/api'
@@ -33,6 +33,8 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
   const [categories, setCategories] = useState('')
   const [tags, setTags] = useState('')
   const [aiBusy, setAiBusy] = useState(null)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiError, setAiError] = useState('')
   const [saving, setSaving] = useState(false)
   const [validation, setValidation] = useState({})
   const [lastSkipped, setLastSkipped] = useState([])
@@ -40,6 +42,7 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
   const [platformOptions, setPlatformOptions] = useState({})
   const [sideTab, setSideTab] = useState('preview')
   const [contentTool, setContentTool] = useState(null)
+  const contentToolRef = useRef(null)
   const [completedPost, setCompletedPost] = useState(null)
   const [termPickerOpen, setTermPickerOpen] = useState(null)
   const [customCategories, setCustomCategories] = useState(() => loadPlannerTerms('post_custom_categories'))
@@ -107,18 +110,45 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
     storeTermColors('post_tag_colors', tagColors)
   }, [tagColors])
 
+  useEffect(() => {
+    if (!contentTool) return undefined
+    const closeOnOutside = (event) => {
+      if (contentToolRef.current?.contains(event.target)) return
+      setContentTool(null)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setContentTool(null)
+    }
+    document.addEventListener('mousedown', closeOnOutside)
+    document.addEventListener('touchstart', closeOnOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside)
+      document.removeEventListener('touchstart', closeOnOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [contentTool])
+
   const runAi = async (type) => {
-    if (!content && type !== 'ideas') return
     setAiBusy(type)
+    setAiError('')
     try {
-      const { data } = await api.post('/ai/generate', { type, topic: content, content, tone: 'friendly' })
+      const topic = aiPrompt.trim() || content.trim() || 'Write a high-performing social media post.'
+      const { data } = await api.post('/ai/generate', { type, topic, content, tone: 'friendly' })
+      const result = normalizeAiResult(data.result)
+      if (!result) throw new Error('AI returned an empty response.')
       if (type === 'hashtags') {
-        setContent((c) => `${c}\n\n${data.result.join(' ')}`)
-      } else if (type === 'caption' || type === 'hook') {
-        setContent(data.result)
+        setContent((current) => [current.trim(), result].filter(Boolean).join('\n\n'))
+      } else if (type === 'hook') {
+        setContent((current) => [result, current.trim()].filter(Boolean).join('\n\n'))
+      } else if (type === 'caption') {
+        setContent(result)
+      } else {
+        setContent((current) => [current.trim(), result].filter(Boolean).join('\n\n'))
       }
+      setSideTab('preview')
     } catch (e) {
-      alert(e.response?.data?.message || 'AI error')
+      setAiError(e.response?.data?.message || e.message || 'AI error')
     } finally {
       setAiBusy(null)
     }
@@ -126,6 +156,13 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
 
   const addEmoji = (emoji) => {
     setContent((current) => `${current}${emoji}`)
+  }
+
+  const addHashtag = (hashtag) => {
+    setContent((current) => {
+      const prefix = current.length === 0 || /\s$/.test(current) ? '' : ' '
+      return `${current}${prefix}${hashtag} `
+    })
   }
 
   const insertIntegrationToken = (name) => {
@@ -243,6 +280,8 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
     setScheduledAt('')
     setCategories('')
     setTags('')
+    setAiPrompt('')
+    setAiError('')
     setValidation({})
     setLastSkipped([])
     setPlatformOptions({})
@@ -323,7 +362,7 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
           {/* Account picker */}
           <Card className="p-4">
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Publish to</h2>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               {accounts.map((a) => {
                 const isSelected = selected.includes(a.id)
                 const skipReason = isSelected
@@ -333,9 +372,9 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
                   <button
                     key={a.id}
                     onClick={() => toggle(a.id)}
-                    className={`relative flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition ${
+                    className={`relative flex min-h-12 items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-xs font-medium transition ${
                       isSelected && !skipReason
-                        ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/30'
+                        ? 'border-brand-500 bg-brand-50 shadow-sm dark:bg-brand-900/30'
                         : isSelected && skipReason
                           ? 'border-amber-400 bg-amber-50/80 dark:bg-amber-900/20'
                           : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800'
@@ -346,9 +385,12 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
                       platform={a.platform}
                       avatarUrl={a.avatar_url}
                       name={a.name}
-                      size="xs"
+                      size="sm"
                     />
-                    <span className="max-w-28 truncate text-slate-700 dark:text-slate-200">{a.name}</span>
+                    <span className="min-w-0">
+                      <span className="block max-w-32 truncate text-slate-700 dark:text-slate-200">{a.name}</span>
+                      <span className="block max-w-32 truncate text-[10px] font-semibold uppercase text-slate-400">{a.platform_label || a.platform}</span>
+                    </span>
                     {isSelected && skipReason && (
                       <span className="rounded bg-amber-200 px-1 text-[9px] font-bold uppercase text-amber-900 dark:bg-amber-800 dark:text-amber-100">
                         skip
@@ -370,17 +412,14 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
           {/* Editor */}
           <Card className="p-5">
             <Textarea rows={7} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Write your caption or message..." />
-            <div className="relative mt-3 flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={() => runAi('caption')} loading={aiBusy === 'caption'}><Wand2 className="h-3.5 w-3.5" /> AI caption</Button>
-              <Button size="sm" variant="secondary" onClick={() => runAi('hook')} loading={aiBusy === 'hook'}><Sparkles className="h-3.5 w-3.5" /> Hook</Button>
-              <Button size="sm" variant="secondary" onClick={() => runAi('hashtags')} loading={aiBusy === 'hashtags'}><Hash className="h-3.5 w-3.5" /> Hashtags</Button>
-              <span className="relative inline-flex">
-                <Button size="sm" variant="secondary" onClick={() => setContentTool((tool) => tool === 'emoji' ? null : 'emoji')}><Smile className="h-3.5 w-3.5" /> Emoji</Button>
-                {contentTool === 'emoji' && <EmojiPanel onSelect={addEmoji} onClose={() => setContentTool(null)} />}
-              </span>
+            <div ref={contentToolRef} className="relative mt-3 flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setContentTool((tool) => tool === 'hashtags' ? null : 'hashtags')}><Hash className="h-3.5 w-3.5" /> Hashtags</Button>
+              <Button size="sm" variant="secondary" onClick={() => setContentTool((tool) => tool === 'emoji' ? null : 'emoji')}><Smile className="h-3.5 w-3.5" /> Emoji</Button>
               <Button size="sm" variant="secondary" onClick={() => setContentTool((tool) => tool === 'integrations' ? null : 'integrations')}><PlugZap className="h-3.5 w-3.5" /> Integrations</Button>
               <span className="ml-auto text-xs text-slate-400">{content.length} chars · {mediaItems.length} file{mediaItems.length !== 1 ? 's' : ''}</span>
-              {contentTool === 'integrations' && <IntegrationPanel integrations={installedIntegrations} onSelect={insertIntegrationToken} />}
+              {contentTool === 'hashtags' && <HashtagPanel onSelect={addHashtag} onClose={() => setContentTool(null)} />}
+              {contentTool === 'emoji' && <EmojiPanel onSelect={addEmoji} onClose={() => setContentTool(null)} />}
+              {contentTool === 'integrations' && <IntegrationPanel integrations={installedIntegrations} onSelect={insertIntegrationToken} onClose={() => setContentTool(null)} />}
             </div>
           </Card>
 
@@ -528,24 +567,40 @@ export function ComposerContent({ modal = false, onDone, initialScheduledAt = nu
               })}
             </>
           ) : (
-            <Card className="p-5">
-              <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
-                  <Sparkles className="h-5 w-5" />
-                </span>
-                <div>
-                  <h2 className="font-semibold text-slate-900 dark:text-white">AI assistant</h2>
-                  <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Use the current caption as context and generate better hooks, captions, or hashtags.</p>
+            <Card className="overflow-hidden">
+              <div className="border-b border-slate-200 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-950/50">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+                    <Sparkles className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <h2 className="font-semibold text-slate-900 dark:text-white">AI assistant</h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Describe what you want, then insert the result directly into the caption field.</p>
+                  </div>
                 </div>
               </div>
-              <div className="mt-5 grid gap-2">
-                <Button variant="secondary" onClick={() => runAi('caption')} loading={aiBusy === 'caption'}><Wand2 className="h-4 w-4" /> Rewrite caption</Button>
-                <Button variant="secondary" onClick={() => runAi('hook')} loading={aiBusy === 'hook'}><Sparkles className="h-4 w-4" /> Generate hook</Button>
-                <Button variant="secondary" onClick={() => runAi('hashtags')} loading={aiBusy === 'hashtags'}><Hash className="h-4 w-4" /> Add hashtags</Button>
-              </div>
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Context</p>
-                <p className="mt-2 line-clamp-6 text-sm leading-6 text-slate-600 dark:text-slate-300">{content || 'Write a caption first, then ask AI to improve it.'}</p>
+              <div className="space-y-4 p-5">
+                {aiError && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+                    {aiError}
+                  </div>
+                )}
+                <Textarea
+                  label="Prompt"
+                  rows={5}
+                  value={aiPrompt}
+                  onChange={(event) => setAiPrompt(event.target.value)}
+                  placeholder="Generate a launch caption for our new feature, friendly tone, short CTA..."
+                />
+                <div className="grid gap-2">
+                  <Button variant="secondary" onClick={() => runAi('caption')} loading={aiBusy === 'caption'}><Wand2 className="h-4 w-4" /> Generate caption</Button>
+                  <Button variant="secondary" onClick={() => runAi('hook')} loading={aiBusy === 'hook'}><Sparkles className="h-4 w-4" /> Add hook above caption</Button>
+                  <Button variant="secondary" onClick={() => runAi('hashtags')} loading={aiBusy === 'hashtags'}><Hash className="h-4 w-4" /> Add hashtags</Button>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Caption context</p>
+                  <p className="mt-2 line-clamp-6 text-sm leading-6 text-slate-600 dark:text-slate-300">{content || 'No caption yet. AI can generate the first draft from your prompt.'}</p>
+                </div>
               </div>
             </Card>
           )}
@@ -707,72 +762,100 @@ function postSuccessStatus(post) {
   }
 }
 
-function EmojiPanel({ onSelect, onClose }) {
+function HashtagPanel({ onSelect, onClose }) {
   const [query, setQuery] = useState('')
+  const [activeGroup, setActiveGroup] = useState(HASHTAG_GROUPS[0]?.name || '')
   const normalizedQuery = query.trim().toLowerCase()
   const groups = useMemo(() => {
-    if (!normalizedQuery) return EMOJI_GROUPS
+    if (!normalizedQuery) return HASHTAG_GROUPS.filter((group) => group.name === activeGroup)
+    return HASHTAG_GROUPS.map((group) => ({
+      ...group,
+      tags: group.tags.filter((tag) => tag.toLowerCase().includes(normalizedQuery)),
+    })).filter((group) => group.tags.length > 0)
+  }, [activeGroup, normalizedQuery])
+
+  return (
+    <ToolPopup title="Hashtags" icon={Hash} onClose={onClose}>
+      <PopupSearch value={query} onChange={setQuery} placeholder="Search hashtags..." />
+      {!normalizedQuery && (
+        <PopupTabs groups={HASHTAG_GROUPS} activeGroup={activeGroup} onChange={setActiveGroup} />
+      )}
+      <div className="mt-3 max-h-72 space-y-4 overflow-y-auto pr-1">
+        {groups.map((group) => (
+          <div key={group.name}>
+            {normalizedQuery && <p className="mb-2 text-xs font-semibold uppercase text-slate-400">{group.name}</p>}
+            <div className="grid gap-2 sm:grid-cols-2">
+              {group.tags.map((tag) => (
+                <button
+                  key={`${group.name}-${tag}`}
+                  type="button"
+                  onClick={() => onSelect(tag)}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 dark:border-slate-700 dark:text-slate-200 dark:hover:border-brand-800 dark:hover:bg-brand-950/30"
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {groups.length === 0 && <PopupEmpty>No hashtags found.</PopupEmpty>}
+      </div>
+    </ToolPopup>
+  )
+}
+
+function EmojiPanel({ onSelect, onClose }) {
+  const [query, setQuery] = useState('')
+  const [activeGroup, setActiveGroup] = useState(EMOJI_GROUPS[0]?.name || '')
+  const normalizedQuery = query.trim().toLowerCase()
+  const groups = useMemo(() => {
+    if (!normalizedQuery) return EMOJI_GROUPS.filter((group) => group.name === activeGroup)
     return EMOJI_GROUPS.map((group) => ({
       ...group,
       emojis: group.emojis.filter((item) => `${item.emoji} ${item.name} ${item.keywords}`.toLowerCase().includes(normalizedQuery)),
     })).filter((group) => group.emojis.length > 0)
-  }, [normalizedQuery])
+  }, [activeGroup, normalizedQuery])
 
   return (
-    <div className="absolute left-0 top-full z-[85] mt-2 w-[min(22rem,calc(100vw_-_2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-100 p-3 dark:border-slate-700">
-        <p className="text-sm font-bold text-slate-900 dark:text-white">Emoji</p>
-        <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Close emoji picker">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="p-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search emoji..."
-            className="h-10 w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-          />
-        </div>
-        <div className="mt-3 max-h-72 space-y-4 overflow-y-auto pr-1">
-          {groups.map((group) => (
-            <div key={group.name}>
-              <p className="mb-2 text-xs font-semibold uppercase text-slate-400">{group.name}</p>
-              <div className="grid grid-cols-8 gap-1">
-                {group.emojis.map((item) => (
-                  <button
-                    key={`${group.name}-${item.emoji}-${item.name}`}
-                    type="button"
-                    onClick={() => onSelect(item.emoji)}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-xl transition hover:bg-slate-100 focus:bg-slate-100 focus:outline-none dark:hover:bg-slate-700 dark:focus:bg-slate-700"
-                    title={item.name}
-                    aria-label={item.name}
-                  >
-                    {item.emoji}
-                  </button>
-                ))}
-              </div>
+    <ToolPopup title="Emoji" icon={Smile} onClose={onClose}>
+      <PopupSearch value={query} onChange={setQuery} placeholder="Search emoji..." />
+      {!normalizedQuery && <PopupTabs groups={EMOJI_GROUPS} activeGroup={activeGroup} onChange={setActiveGroup} />}
+      <div className="mt-3 max-h-72 space-y-4 overflow-y-auto pr-1">
+        {groups.map((group) => (
+          <div key={group.name}>
+            {normalizedQuery && <p className="mb-2 text-xs font-semibold uppercase text-slate-400">{group.name}</p>}
+            <div className="grid grid-cols-8 gap-1">
+              {group.emojis.map((item) => (
+                <button
+                  key={`${group.name}-${item.emoji}-${item.name}`}
+                  type="button"
+                  onClick={() => onSelect(item.emoji)}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-xl transition hover:bg-slate-100 focus:bg-slate-100 focus:outline-none dark:hover:bg-slate-700 dark:focus:bg-slate-700"
+                  title={item.name}
+                  aria-label={item.name}
+                >
+                  {item.emoji}
+                </button>
+              ))}
             </div>
-          ))}
-          {groups.length === 0 && (
-            <p className="rounded-xl border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400 dark:border-slate-700">
-              No emoji found.
-            </p>
-          )}
-        </div>
+          </div>
+        ))}
+        {groups.length === 0 && <PopupEmpty>No emoji found.</PopupEmpty>}
       </div>
-    </div>
+    </ToolPopup>
   )
 }
 
-function IntegrationPanel({ integrations, onSelect }) {
+function IntegrationPanel({ integrations, onSelect, onClose }) {
+  const [query, setQuery] = useState('')
+  const normalizedQuery = query.trim().toLowerCase()
+  const visibleIntegrations = integrations.filter((integration) => integration.toLowerCase().includes(normalizedQuery))
+
   return (
-    <div className="absolute left-24 top-full z-40 mt-2 w-72 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-800">
-      <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Installed integrations</p>
-      <div className="mt-1 max-h-64 space-y-1 overflow-y-auto">
-        {integrations.map((integration) => (
+    <ToolPopup title="Integrations" icon={PlugZap} onClose={onClose}>
+      <PopupSearch value={query} onChange={setQuery} placeholder="Search integrations..." />
+      <div className="mt-3 max-h-72 space-y-1 overflow-y-auto pr-1">
+        {visibleIntegrations.map((integration) => (
           <button
             key={integration}
             type="button"
@@ -783,18 +866,80 @@ function IntegrationPanel({ integrations, onSelect }) {
             {integration}
           </button>
         ))}
-        {integrations.length === 0 && (
-          <p className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-sm text-slate-400 dark:border-slate-700">
-            No integrations installed in this workspace.
-          </p>
-        )}
+        {visibleIntegrations.length === 0 && <PopupEmpty>{integrations.length === 0 ? 'No integrations installed in this workspace.' : 'No integrations found.'}</PopupEmpty>}
+      </div>
+    </ToolPopup>
+  )
+}
+
+function ToolPopup({ title, icon: Icon, onClose, children }) {
+  return (
+    <div className="absolute left-0 top-full z-[85] mt-2 w-[min(25rem,calc(100vw_-_2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 p-3 dark:border-slate-700">
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+            <Icon className="h-4 w-4" />
+          </span>
+          <p className="text-sm font-bold text-slate-900 dark:text-white">{title}</p>
+        </div>
+        <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-white" aria-label={`Close ${title.toLowerCase()} picker`}>
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="p-3">
+        {children}
       </div>
     </div>
   )
 }
 
+function PopupSearch({ value, onChange, placeholder }) {
+  return (
+    <div className="relative">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-10 w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+      />
+    </div>
+  )
+}
+
+function PopupTabs({ groups, activeGroup, onChange }) {
+  return (
+    <div className="mt-3 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-900">
+      {groups.map((group) => (
+        <button
+          key={group.name}
+          type="button"
+          onClick={() => onChange(group.name)}
+          className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-bold transition ${activeGroup === group.name ? 'bg-white text-brand-600 shadow-sm dark:bg-slate-800 dark:text-brand-300' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'}`}
+        >
+          {group.name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function PopupEmpty({ children }) {
+  return (
+    <p className="rounded-xl border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400 dark:border-slate-700">
+      {children}
+    </p>
+  )
+}
+
 export default function Composer() {
   return <ComposerContent />
+}
+
+function normalizeAiResult(result) {
+  if (Array.isArray(result)) return result.filter(Boolean).join(' ')
+  if (result && typeof result === 'object') return Object.values(result).filter(Boolean).join('\n')
+  return String(result || '').trim()
 }
 
 function splitList(value) {
@@ -864,6 +1009,33 @@ function formatDateTime(value) {
   return date.toLocaleString()
 }
 
+const HASHTAG_GROUPS = [
+  {
+    name: 'Popular',
+    tags: ['#trending', '#viral', '#newpost', '#mustsee', '#daily', '#today', '#update', '#community', '#creator', '#socialmedia', '#contentcreator', '#explore'],
+  },
+  {
+    name: 'Marketing',
+    tags: ['#marketing', '#digitalmarketing', '#contentmarketing', '#brandstrategy', '#growthmarketing', '#socialstrategy', '#campaign', '#leadgeneration', '#sales', '#smallbusiness', '#startup', '#entrepreneur'],
+  },
+  {
+    name: 'Launch',
+    tags: ['#launch', '#comingsoon', '#newrelease', '#productlaunch', '#announcement', '#behindthescenes', '#sneakpeek', '#earlyaccess', '#limitedtime', '#giveaway', '#deal', '#offer'],
+  },
+  {
+    name: 'Lifestyle',
+    tags: ['#lifestyle', '#motivation', '#inspiration', '#wellness', '#selfcare', '#mindset', '#productivity', '#goals', '#dailyhabits', '#worklife', '#weekend', '#goodvibes'],
+  },
+  {
+    name: 'Tech',
+    tags: ['#tech', '#ai', '#software', '#saas', '#automation', '#design', '#webdesign', '#developer', '#nocode', '#productivitytools', '#innovation', '#futureofwork'],
+  },
+  {
+    name: 'Local',
+    tags: ['#localbusiness', '#supportlocal', '#communityfirst', '#shoplocal', '#localbrand', '#citylife', '#events', '#networking', '#customers', '#teamwork', '#service', '#reviews'],
+  },
+]
+
 const EMOJI_GROUPS = [
   {
     name: 'Smileys',
@@ -888,6 +1060,14 @@ const EMOJI_GROUPS = [
       emojiItem('🤔', 'Thinking', 'question idea'),
       emojiItem('🤯', 'Mind blown', 'wow surprise'),
       emojiItem('😅', 'Sweat smile', 'relief nervous'),
+      emojiItem('😋', 'Yum', 'delicious excited'),
+      emojiItem('😘', 'Kiss', 'love thanks'),
+      emojiItem('😜', 'Playful face', 'fun silly'),
+      emojiItem('🤗', 'Hugging face', 'support warm'),
+      emojiItem('🫡', 'Salute', 'respect ready'),
+      emojiItem('🫠', 'Melting face', 'overwhelmed funny'),
+      emojiItem('🥹', 'Holding back tears', 'grateful emotional'),
+      emojiItem('😬', 'Grimace', 'awkward nervous'),
       emojiItem('😭', 'Crying', 'sad emotional'),
       emojiItem('😤', 'Determined', 'focus strong'),
       emojiItem('🙌', 'Raised hands', 'celebrate success'),
@@ -913,6 +1093,12 @@ const EMOJI_GROUPS = [
       emojiItem('🫶', 'Heart hands', 'love support'),
       emojiItem('👐', 'Open hands', 'welcome'),
       emojiItem('🙋', 'Raised hand', 'question volunteer'),
+      emojiItem('✋', 'Raised palm', 'stop hello'),
+      emojiItem('🤲', 'Palms up', 'support offer'),
+      emojiItem('🫰', 'Finger heart', 'love thanks'),
+      emojiItem('🫵', 'Point at viewer', 'you cta'),
+      emojiItem('👋', 'Wave', 'hello goodbye'),
+      emojiItem('✍️', 'Writing hand', 'write note'),
     ],
   },
   {
@@ -942,6 +1128,34 @@ const EMOJI_GROUPS = [
       emojiItem('⏰', 'Alarm clock', 'time deadline'),
       emojiItem('🔗', 'Link', 'url connection'),
       emojiItem('🎬', 'Movie camera', 'video content'),
+      emojiItem('🎙️', 'Studio microphone', 'podcast audio'),
+      emojiItem('🧪', 'Test tube', 'experiment'),
+      emojiItem('📦', 'Package', 'shipping product'),
+      emojiItem('🧾', 'Receipt', 'invoice sales'),
+      emojiItem('🪄', 'Magic wand', 'magic create'),
+      emojiItem('🔁', 'Repeat arrows', 'refresh recycle'),
+      emojiItem('🔑', 'Key', 'access unlock'),
+    ],
+  },
+  {
+    name: 'Activities',
+    emojis: [
+      emojiItem('🎉', 'Party popper', 'celebrate'),
+      emojiItem('🎊', 'Confetti', 'celebrate'),
+      emojiItem('🎈', 'Balloon', 'party'),
+      emojiItem('🎵', 'Music note', 'music audio'),
+      emojiItem('🎶', 'Music notes', 'music audio'),
+      emojiItem('🎮', 'Game controller', 'gaming'),
+      emojiItem('🎲', 'Dice', 'chance fun'),
+      emojiItem('🧩', 'Puzzle', 'solution fit'),
+      emojiItem('🎨', 'Palette', 'creative design'),
+      emojiItem('🏅', 'Medal', 'award'),
+      emojiItem('🥇', 'First place', 'winner'),
+      emojiItem('🏁', 'Finish flag', 'finish launch'),
+      emojiItem('⛳', 'Golf flag', 'goal target'),
+      emojiItem('🎟️', 'Ticket', 'event pass'),
+      emojiItem('🎫', 'Admission ticket', 'event'),
+      emojiItem('🪩', 'Mirror ball', 'party launch'),
     ],
   },
   {
@@ -963,6 +1177,12 @@ const EMOJI_GROUPS = [
       emojiItem('⚡', 'Lightning', 'fast energy'),
       emojiItem('🌈', 'Rainbow', 'bright pride'),
       emojiItem('☀️', 'Sun', 'bright'),
+      emojiItem('💎', 'Gem', 'premium valuable'),
+      emojiItem('🪙', 'Coin', 'money value'),
+      emojiItem('🎀', 'Ribbon', 'gift pretty'),
+      emojiItem('🔴', 'Red circle', 'red marker'),
+      emojiItem('🟢', 'Green circle', 'green marker'),
+      emojiItem('🔵', 'Blue circle', 'blue marker'),
     ],
   },
   {
@@ -984,6 +1204,14 @@ const EMOJI_GROUPS = [
       emojiItem('📍', 'Location pin', 'location'),
       emojiItem('✉️', 'Envelope', 'email message'),
       emojiItem('🔒', 'Lock', 'secure privacy'),
+      emojiItem('🔓', 'Unlocked', 'open access'),
+      emojiItem('🛒', 'Cart', 'shopping ecommerce'),
+      emojiItem('🏷️', 'Label', 'tag offer'),
+      emojiItem('🧷', 'Safety pin', 'pin attach'),
+      emojiItem('🪧', 'Placard', 'sign announcement'),
+      emojiItem('📮', 'Mailbox', 'mail message'),
+      emojiItem('🧿', 'Evil eye', 'protect unique'),
+      emojiItem('🪪', 'ID card', 'profile identity'),
     ],
   },
   {
@@ -1005,6 +1233,39 @@ const EMOJI_GROUPS = [
       emojiItem('🍿', 'Popcorn', 'watch'),
       emojiItem('🍓', 'Strawberry', 'fresh'),
       emojiItem('🥗', 'Salad', 'healthy'),
+      emojiItem('🍔', 'Burger', 'food'),
+      emojiItem('🍜', 'Noodles', 'food'),
+      emojiItem('🍩', 'Donut', 'sweet'),
+      emojiItem('🥤', 'Cup with straw', 'drink'),
+      emojiItem('🧋', 'Bubble tea', 'drink'),
+      emojiItem('🍽️', 'Plate', 'food dining'),
+      emojiItem('🪴', 'Potted plant', 'growth'),
+      emojiItem('🌺', 'Flower', 'beauty'),
+      emojiItem('🌵', 'Cactus', 'resilient'),
+      emojiItem('🔥', 'Fire', 'hot trending'),
+      emojiItem('💧', 'Water drop', 'fresh'),
+      emojiItem('🍃', 'Leaf', 'fresh natural'),
+    ],
+  },
+  {
+    name: 'Travel',
+    emojis: [
+      emojiItem('✈️', 'Airplane', 'travel'),
+      emojiItem('🚗', 'Car', 'drive travel'),
+      emojiItem('🚕', 'Taxi', 'transport'),
+      emojiItem('🚆', 'Train', 'travel'),
+      emojiItem('🚲', 'Bicycle', 'ride'),
+      emojiItem('🛵', 'Scooter', 'delivery'),
+      emojiItem('🚢', 'Ship', 'shipping travel'),
+      emojiItem('🧭', 'Compass', 'direction'),
+      emojiItem('🗺️', 'Map', 'travel plan'),
+      emojiItem('🏙️', 'Cityscape', 'city'),
+      emojiItem('🏖️', 'Beach', 'vacation'),
+      emojiItem('🏠', 'House', 'home'),
+      emojiItem('🏢', 'Office', 'business'),
+      emojiItem('🛎️', 'Bellhop', 'service'),
+      emojiItem('🧳', 'Luggage', 'travel'),
+      emojiItem('⌚', 'Watch', 'time'),
     ],
   },
 ]

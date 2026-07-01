@@ -10,15 +10,13 @@ import {
   GripVertical,
   List,
   Plus,
-  Trash2,
-  X,
 } from 'lucide-react'
 import api from '../lib/api'
 import { Button, Card, PageLoader } from '../components/ui'
 import PlatformBadge from '../components/PlatformBadge'
-import DateTimeField from '../components/DateTimeField'
+import PostDetailsModal from '../components/posts/PostDetailsModal'
+import PlanEditorModal from '../components/planner/PlanEditorModal'
 import { getHolidayItems } from '../lib/holidays'
-import { fromLocalDateTimeInput, toLocalDateTimeInput } from '../lib/datetime'
 
 const VIEWS = [
   { id: 'day', label: 'Day', icon: List },
@@ -50,7 +48,6 @@ export default function Calendar({
   const [dropTarget, setDropTarget] = useState(null)
   const [busyPostId, setBusyPostId] = useState(null)
   const [plannerBusyDate, setPlannerBusyDate] = useState(null)
-  const [modalAction, setModalAction] = useState(null)
 
   const range = useMemo(() => getRange(cursor, view), [cursor, view])
   const from = fmt(range.start)
@@ -167,36 +164,6 @@ export default function Calendar({
     next.setHours(hour ?? current.getHours(), current.getMinutes(), 0, 0)
 
     if (next.getTime() !== current.getTime()) rescheduleItem(post, next)
-  }
-
-  const deletePost = async (post) => {
-    if (post.kind === 'planner') return false
-
-    setModalAction('delete')
-    setBusyPostId(post.id)
-    try {
-      await api.delete(`/posts/${post.id}`)
-      setCalendarData((current) => ({
-        ...current,
-        posts: current.posts.filter((item) => item.id !== post.id),
-      }))
-      setSelectedPost(null)
-      return true
-    } catch (error) {
-      window.alert(error.response?.data?.message || 'Could not delete this post.')
-      return false
-    } finally {
-      setModalAction(null)
-      setBusyPostId(null)
-    }
-  }
-
-  const saveModalDate = async (date) => {
-    if (!selectedPost) return
-    setModalAction('save')
-    const saved = await rescheduleItem(selectedPost, date)
-    setModalAction(null)
-    if (saved) setSelectedPost(null)
   }
 
   const move = (direction) => {
@@ -323,13 +290,34 @@ export default function Calendar({
         </>
       )}
 
-      {selectedPost && !onOpenItem && (
+      {selectedPost?.kind === 'planner' && !onOpenItem && (
+        <PlanEditorModal
+          key={`calendar-planner-${selectedPost.id}`}
+          open
+          note={selectedPost.note || selectedPost}
+          onClose={() => setSelectedPost(null)}
+          onSaved={(savedNote) => {
+            setCreatedPlannerNotes((current) => current.map((note) => note.id === savedNote.id ? savedNote : note))
+            replacePost(noteToCalendarItem(savedNote))
+            setSelectedPost(null)
+          }}
+        />
+      )}
+
+      {selectedPost && selectedPost.kind !== 'planner' && selectedPost.kind !== 'holiday' && !onOpenItem && (
         <PostDetailsModal
           post={selectedPost}
-          action={modalAction}
+          postId={selectedPost.id}
+          open
           onClose={() => setSelectedPost(null)}
-          onSave={saveModalDate}
-          onDelete={() => deletePost(selectedPost)}
+          onChanged={(updatedPost) => replacePost(updatedPost)}
+          onDeleted={(deletedPost) => {
+            setCalendarData((current) => ({
+              ...current,
+              posts: current.posts.filter((item) => item.id !== deletedPost.id),
+            }))
+            setSelectedPost(null)
+          }}
         />
       )}
     </div>
@@ -622,127 +610,6 @@ function PostCard({ post, compact = false, detailed = false, onOpen, onDragEnd, 
         )}
       </div>
     </button>
-  )
-}
-
-function PostDetailsModal({ post, action, onClose, onSave, onDelete }) {
-  const [scheduledAt, setScheduledAt] = useState(() => post.scheduled_at ? toLocalDateTimeInput(post.scheduled_at) : '')
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const editable = canReschedule(post)
-  const planner = post.kind === 'planner'
-  const deletable = !planner && post.status !== 'publishing'
-
-  useEffect(() => {
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape' && !action) onClose()
-    }
-    document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [action, onClose])
-
-  const submit = (event) => {
-    event.preventDefault()
-    const isoValue = fromLocalDateTimeInput(scheduledAt)
-    if (!isoValue) return
-    const date = new Date(isoValue)
-    if (!Number.isNaN(date.getTime())) onSave(date)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && !action && onClose()}>
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900" role="dialog" aria-modal="true" aria-labelledby="post-details-title">
-        <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-          <div className="min-w-0 pr-4">
-            <div className="flex items-center gap-2">
-              <h2 id="post-details-title" className="truncate text-lg font-bold text-slate-900 dark:text-white">
-                {post.title || (planner ? 'Planner details' : 'Post details')}
-              </h2>
-              <StatusBadge post={post} />
-            </div>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{planner ? 'Planner note' : `Post #${post.id}`}</p>
-          </div>
-          <button type="button" onClick={onClose} disabled={Boolean(action)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-white" aria-label="Close details">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="space-y-5 p-5">
-          <div>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Content</p>
-            <p className="whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
-              {post.content || 'No text content.'}
-            </p>
-          </div>
-
-          {planner && (
-            <div className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300">
-              <FileText className="h-4 w-4" /> Planner note
-            </div>
-          )}
-
-          {!planner && (post.variants || []).length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Platforms</p>
-              <div className="flex flex-wrap gap-2">
-                {post.variants.map((variant) => (
-                  <div key={variant.id} className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
-                    <PlatformBadge platform={variant.platform} size="xs" />
-                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                      {variant.social_account?.name || variant.platform}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(post.media || []).length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Media</p>
-              <div className="grid grid-cols-3 gap-2">
-                {post.media.slice(0, 3).map((item) => (
-                  <img key={item.id} src={item.thumbnail_url || item.url} alt={item.original_name || 'Post media'} className="h-24 w-full rounded-xl bg-slate-100 object-cover dark:bg-slate-800" />
-                ))}
-              </div>
-            </div>
-          )}
-
-          <form onSubmit={submit} className="space-y-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-            <DateTimeField
-              label="Scheduled date and time"
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(event) => setScheduledAt(event.target.value)}
-              disabled={!editable || Boolean(action)}
-              required
-            />
-            {!editable && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                {planner ? 'Planner notes are shown on the calendar from their saved planner date.' : 'Published or currently publishing posts cannot be rescheduled.'}
-              </p>
-            )}
-            <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                {!deletable ? null : !confirmDelete ? (
-                  <Button type="button" variant="ghost" className="text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40" onClick={() => setConfirmDelete(true)} disabled={!deletable || Boolean(action)}>
-                    <Trash2 className="h-4 w-4" /> Delete post
-                  </Button>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-rose-600 dark:text-rose-400">Delete permanently?</span>
-                    <Button type="button" variant="danger" size="sm" loading={action === 'delete'} onClick={onDelete}>Delete</Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} disabled={Boolean(action)}>Cancel</Button>
-                  </div>
-                )}
-              </div>
-              <Button type="submit" loading={action === 'save'} disabled={!editable || Boolean(action)}>
-                Save date and time
-              </Button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
   )
 }
 

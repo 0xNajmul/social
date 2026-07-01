@@ -15,6 +15,7 @@ const USER_SEARCH_ITEMS = [
   { label: 'Automations', to: '/app/automations', keywords: 'rss workflow auto post' },
   { label: 'Analytics', to: '/app/analytics', keywords: 'reports metrics insights' },
   { label: 'Profile', to: '/app/profile', keywords: 'user account avatar' },
+  { label: 'Public Profile', to: '/app/public-profile', keywords: 'about page bio links public website' },
   { label: 'Settings', to: '/app/settings', keywords: 'workspace preferences timezone' },
   { label: 'Pricing plan', to: '/app/pricing-plan', keywords: 'billing subscription package' },
   { label: 'Invite & earn', to: '/app/invite', keywords: 'referral affiliate earn' },

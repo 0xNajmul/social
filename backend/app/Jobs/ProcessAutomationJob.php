@@ -11,14 +11,17 @@ class ProcessAutomationJob implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public int $automationId) {}
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    public function __construct(public int $automationId, public array $context = []) {}
 
     public function handle(AutomationRunner $runner): void
     {
         $automation = Automation::find($this->automationId);
 
         if ($automation && $automation->is_active) {
-            $runner->run($automation);
+            $runner->run($automation, $this->context);
         }
     }
 }

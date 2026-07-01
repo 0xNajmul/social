@@ -56,10 +56,10 @@ export default function NotificationMenu({ open, onOpenChange, onSelect }) {
       if (event.key === 'Escape') onOpenChange(false)
     }
 
-    document.addEventListener('mousedown', closeMenu)
+    document.addEventListener('mousedown', closeMenu, true)
     document.addEventListener('keydown', closeOnEscape)
     return () => {
-      document.removeEventListener('mousedown', closeMenu)
+      document.removeEventListener('mousedown', closeMenu, true)
       document.removeEventListener('keydown', closeOnEscape)
     }
   }, [onOpenChange, open])
@@ -223,13 +223,18 @@ function NotificationPanel({ loading, markAllRead, markRead, mobile = false, not
 function NotificationItem({ notification, onClick }) {
   const data = notification.data || {}
   const type = data.type || notification.type || ''
+  const event = data.event || ''
+  const priority = data.priority || 'normal'
   const unread = !notification.read_at
-  const Icon = type.includes('failed') ? CircleAlert : type.includes('published') ? CircleCheck : type.includes('token') ? Link2 : Bell
-  const iconClass = type.includes('failed')
+  const failed = type.includes('failed') || ['publish_failed', 'failure_alert'].includes(event) || priority === 'critical'
+  const completed = type.includes('published') || event === 'run_completed'
+  const token = type.includes('token') || event === 'token_warning'
+  const Icon = failed ? CircleAlert : completed ? CircleCheck : token ? Link2 : Bell
+  const iconClass = failed
     ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-300'
-    : type.includes('published')
+    : completed
       ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
-      : type.includes('token')
+      : token
         ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300'
         : 'bg-brand-100 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300'
 
@@ -247,6 +252,12 @@ function NotificationItem({ notification, onClick }) {
           {unread && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-600" />}
         </span>
         <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">{data.message || 'You have a new update.'}</span>
+        <span className="mt-2 flex flex-wrap items-center gap-1.5">
+          {event && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{eventLabel(event)}</span>}
+          {priority !== 'normal' && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${priorityClass(priority)}`}>{priority}</span>}
+          {data.channel && <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{channelLabel(data.channel)}</span>}
+          {data.action_label && <span className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-600 dark:bg-brand-950/40 dark:text-brand-300">{data.action_label}</span>}
+        </span>
         <span className="mt-1 block text-[10px] font-medium text-slate-400">{relativeTime(notification.created_at)}</span>
       </span>
     </button>
@@ -263,4 +274,33 @@ function relativeTime(value) {
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d ago`
   return new Date(value).toLocaleDateString()
+}
+
+function eventLabel(value) {
+  return {
+    run_started: 'Started',
+    run_completed: 'Completed',
+    delay_waiting: 'Waiting',
+    approval_needed: 'Approval',
+    publish_failed: 'Failed',
+    failure_alert: 'Alert',
+    token_warning: 'Token',
+    webhook_notification: 'Webhook',
+  }[value] || value.replace(/_/g, ' ')
+}
+
+function channelLabel(value) {
+  return {
+    in_app: 'In app',
+    email: 'Email',
+    both: 'In app + email',
+  }[value] || value
+}
+
+function priorityClass(value) {
+  return {
+    low: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+    high: 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300',
+    critical: 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300',
+  }[value] || 'bg-brand-100 text-brand-700 dark:bg-brand-950/50 dark:text-brand-300'
 }

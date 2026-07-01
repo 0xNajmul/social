@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Automation;
+use App\Models\MediaAsset;
 use App\Models\Plan;
+use App\Models\PlannerNote;
 use App\Models\Post;
 use App\Models\SocialAccount;
 use App\Models\Subscription;
@@ -28,6 +31,9 @@ class AdminDashboardController extends Controller
                 'workspaces' => $this->between(Workspace::query(), $from, $to)->count(),
                 'social_accounts' => $this->between(SocialAccount::query(), $from, $to)->count(),
                 'posts' => $this->between(Post::query(), $from, $to)->count(),
+                'planner_notes' => $this->between(PlannerNote::query(), $from, $to)->count(),
+                'media_assets' => $this->between(MediaAsset::query(), $from, $to)->count(),
+                'automations' => $this->between(Automation::query(), $from, $to)->count(),
                 'published_posts' => $this->between(Post::where('status', 'published'), $from, $to, 'published_at')->count(),
                 'active_subscriptions' => Subscription::whereIn('status', ['active', 'trialing'])->count(),
                 'new_users_30d' => User::where('created_at', '>=', now()->subDays(30))->count(),

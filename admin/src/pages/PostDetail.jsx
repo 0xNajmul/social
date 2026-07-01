@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Edit3, Eye, Save, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft, CalendarClock, Clock3, Edit3, ExternalLink, Eye, FileText, Hash,
+  Image as ImageIcon, Link2, MessageSquare, Save, Share2, Sparkles, Trash2, Users,
+} from 'lucide-react'
 import api from '../lib/api'
 import { Badge, Button, Card, Input, PageLoader, Textarea } from '../components/ui'
 import DateTimeField from '../components/DateTimeField'
@@ -27,13 +30,13 @@ export default function PostDetail() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState(null)
 
-  const load = () => api.get(`/admin/posts/${id}`).then(({ data }) => {
+  const load = useCallback(() => api.get(`/admin/posts/${id}`).then(({ data }) => {
     setPost(data.data)
     setForm(toForm(data.data))
     setEditing(startInEditMode)
-  }).catch(() => setPost(false))
+  }).catch(() => setPost(false)), [id, startInEditMode])
 
-  useEffect(() => { load() }, [id, startInEditMode])
+  useEffect(() => { load() }, [load])
 
   const payload = useMemo(() => {
     if (!form) return {}
@@ -105,6 +108,8 @@ export default function PostDetail() {
 
       {message && <Notice message={message} />}
 
+      <PostSummary post={post} />
+
       <form onSubmit={save} className="grid gap-6 xl:grid-cols-[1fr_340px]">
         <div className="space-y-6">
           <Card className="p-5">
@@ -135,9 +140,14 @@ export default function PostDetail() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Content</p>
                   <p className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-sm leading-6 text-slate-300">{post.content || 'No content.'}</p>
                 </div>
+                <ContentTokens post={post} />
               </div>
             )}
           </Card>
+
+          <ContentFeaturePanel post={post} />
+
+          <MediaGallery media={post.media || []} />
 
           <Card className="overflow-hidden">
             <div className="border-b border-slate-800 px-5 py-4">
@@ -145,20 +155,37 @@ export default function PostDetail() {
               <p className="mt-1 text-xs text-slate-500">Review platform status, accounts, attempts and provider data.</p>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[850px] text-left text-xs">
+              <table className="w-full min-w-[980px] text-left text-xs">
                 <thead className="bg-slate-800/40 uppercase tracking-wide text-slate-500">
-                  <tr><th className="px-3 py-2">Platform</th><th className="px-3 py-2">Account</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Scheduled</th><th className="px-3 py-2">Published</th><th className="px-3 py-2">Attempts</th><th className="px-3 py-2">Error</th></tr>
+                  <tr><th className="px-3 py-2">Platform</th><th className="px-3 py-2">Account</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Variant copy</th><th className="px-3 py-2">Timing</th><th className="px-3 py-2">Attempts</th><th className="px-3 py-2">Result</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {(post.variants || []).map((variant) => (
                     <tr key={variant.id} className="text-slate-300">
                       <td className="px-3 py-2"><Badge>{variant.platform}</Badge></td>
-                      <td className="px-3 py-2">{variant.social_account?.name || '-'}</td>
-                      <td className="px-3 py-2">{variant.status}</td>
-                      <td className="px-3 py-2 text-slate-500">{variant.scheduled_at ? new Date(variant.scheduled_at).toLocaleString() : '-'}</td>
-                      <td className="px-3 py-2 text-slate-500">{variant.published_at ? new Date(variant.published_at).toLocaleString() : '-'}</td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium text-slate-200">{variant.social_account?.name || '-'}</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">{variant.social_account?.username || variant.provider_post_id || '-'}</p>
+                      </td>
+                      <td className="px-3 py-2"><VariantStatusBadge status={variant.status} /></td>
+                      <td className="px-3 py-2">
+                        <p className="line-clamp-2 max-w-sm text-slate-300">{variant.content || post.content || '-'}</p>
+                        {(variant.hashtags || []).length > 0 && <p className="mt-1 text-[11px] text-brand-300">{variant.hashtags.map((tag) => tag.startsWith('#') ? tag : `#${tag}`).join(' ')}</p>}
+                      </td>
+                      <td className="px-3 py-2 text-slate-500">
+                        <p>Scheduled: {formatDate(variant.scheduled_at)}</p>
+                        <p>Published: {formatDate(variant.published_at)}</p>
+                      </td>
                       <td className="px-3 py-2">{variant.attempts ?? 0}</td>
-                      <td className="px-3 py-2 text-rose-300">{variant.error_message || '-'}</td>
+                      <td className="px-3 py-2">
+                        {variant.permalink ? (
+                          <a href={variant.permalink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-300 hover:text-brand-200">
+                            Open post <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className={variant.error_message ? 'text-rose-300' : 'text-slate-500'}>{variant.error_message || '-'}</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {(post.variants || []).length === 0 && <tr><td colSpan="7" className="px-3 py-8 text-center text-slate-500">No variants.</td></tr>}
@@ -209,6 +236,201 @@ export default function PostDetail() {
   )
 }
 
+function PostSummary({ post }) {
+  const variants = post.variants || []
+  const media = post.media || []
+  const publishedCount = variants.filter((variant) => variant.status === 'published').length
+  const failedCount = variants.filter((variant) => variant.status === 'failed').length
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <MetricCard icon={FileText} label="Post type" value={post.type || 'text'} hint={`${countWords(post.content)} words`} />
+      <MetricCard icon={Share2} label="Channels" value={variants.length} hint={`${publishedCount} published, ${failedCount} failed`} />
+      <MetricCard icon={ImageIcon} label="Media" value={media.length} hint={media.length ? media.map((item) => item.type).slice(0, 3).join(', ') : 'No attachments'} />
+      <MetricCard icon={CalendarClock} label="Schedule" value={post.scheduled_at ? 'Scheduled' : post.published_at ? 'Published' : 'Not scheduled'} hint={formatDate(post.scheduled_at || post.published_at)} />
+    </div>
+  )
+}
+
+function MetricCard({ icon: Icon, label, value, hint }) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+          <p className="mt-2 text-2xl font-bold text-white">{value}</p>
+          <p className="mt-1 text-xs text-slate-500">{hint}</p>
+        </div>
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600/20 text-brand-300">
+          <Icon className="h-5 w-5" />
+        </span>
+      </div>
+    </Card>
+  )
+}
+
+function ContentTokens({ post }) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-3">
+      <InfoPanel icon={Link2} label="Link">
+        {post.link_url ? (
+          <a href={post.link_url} target="_blank" rel="noreferrer" className="line-clamp-2 break-all text-brand-300 hover:text-brand-200">
+            {post.link_url}
+          </a>
+        ) : (
+          <span className="text-slate-500">No link attached.</span>
+        )}
+      </InfoPanel>
+      <InfoPanel icon={Hash} label="Hashtags">
+        <TokenList items={post.hashtags || []} prefix="#" empty="No hashtags." />
+      </InfoPanel>
+      <InfoPanel icon={Users} label="Mentions">
+        <TokenList items={post.mentions || []} prefix="@" empty="No mentions." />
+      </InfoPanel>
+    </div>
+  )
+}
+
+function ContentFeaturePanel({ post }) {
+  const options = Object.entries(post.options || {}).slice(0, 8)
+  const variants = post.variants || []
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-brand-300">
+          <Sparkles className="h-5 w-5" />
+        </span>
+        <div>
+          <h2 className="font-semibold text-white">Content review</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Fast admin context for copy length, approval state, platform coverage and saved publishing options.</p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ReviewStat icon={MessageSquare} label="Characters" value={String(post.content || '').length} />
+        <ReviewStat icon={Clock3} label="Approval" value={post.requires_approval ? 'Required' : 'Not required'} />
+        <ReviewStat icon={Share2} label="Ready variants" value={variants.filter((variant) => !['failed', 'cancelled'].includes(variant.status)).length} />
+        <ReviewStat icon={Link2} label="Link attached" value={post.link_url ? 'Yes' : 'No'} />
+      </div>
+      <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Publishing options</p>
+        {options.length > 0 ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {options.map(([key, value]) => (
+              <div key={key} className="rounded-lg bg-slate-900 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-slate-500">{key.replace(/_/g, ' ')}</p>
+                <p className="mt-1 break-words text-sm text-slate-200">{formatOptionValue(value)}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">No custom options saved for this post.</p>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function ReviewStat({ icon: Icon, label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+      <div className="flex items-center gap-2 text-slate-500">
+        <Icon className="h-4 w-4" />
+        <span className="text-xs font-semibold uppercase tracking-wide">{label}</span>
+      </div>
+      <p className="mt-2 text-sm font-semibold text-slate-100">{value}</p>
+    </div>
+  )
+}
+
+function MediaGallery({ media }) {
+  return (
+    <Card className="p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-white">Media attachments</h2>
+          <p className="mt-1 text-xs text-slate-500">Preview attached assets, dimensions, file size and alternate text.</p>
+        </div>
+        <Badge color={media.length ? 'indigo' : 'slate'}>{media.length} files</Badge>
+      </div>
+      {media.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {media.map((item) => <MediaPreview key={item.id} item={item} />)}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-slate-800 p-8 text-center text-sm text-slate-500">
+          <ImageIcon className="mx-auto mb-2 h-8 w-8" />No media attached to this post.
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function MediaPreview({ item }) {
+  const isImage = ['image', 'gif'].includes(item.type)
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/50">
+      <div className="flex aspect-video items-center justify-center bg-slate-950">
+        {isImage && item.url ? (
+          <img src={item.url} alt={item.alt_text || item.original_name || ''} className="h-full w-full object-cover" />
+        ) : (
+          <div className="text-center text-slate-500">
+            <ImageIcon className="mx-auto h-9 w-9" />
+            <p className="mt-2 text-xs font-medium uppercase tracking-wide">{item.type || 'asset'}</p>
+          </div>
+        )}
+      </div>
+      <div className="space-y-2 p-3 text-xs">
+        <p className="truncate font-semibold text-slate-200">{item.original_name || `Asset #${item.id}`}</p>
+        <p className="text-slate-500">{item.mime_type || '-'} - {formatBytes(item.size)}</p>
+        <p className="text-slate-500">{item.width && item.height ? `${item.width} x ${item.height}` : 'Dimensions unavailable'}</p>
+        {item.alt_text && <p className="line-clamp-2 text-slate-400">{item.alt_text}</p>}
+      </div>
+    </div>
+  )
+}
+
+function InfoPanel({ icon: Icon, label, children }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+      <div className="mb-2 flex items-center gap-2 text-slate-500">
+        <Icon className="h-4 w-4" />
+        <p className="text-xs font-semibold uppercase tracking-wide">{label}</p>
+      </div>
+      <div className="text-sm text-slate-300">{children}</div>
+    </div>
+  )
+}
+
+function TokenList({ items, prefix, empty }) {
+  if (!items.length) return <span className="text-slate-500">{empty}</span>
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map((item) => {
+        const text = String(item)
+        return <span key={text} className="rounded-full bg-slate-800 px-2 py-1 text-xs text-slate-200">{text.startsWith(prefix) ? text : `${prefix}${text}`}</span>
+      })}
+    </div>
+  )
+}
+
+function VariantStatusBadge({ status }) {
+  return <Badge color={statusColor(status)}>{String(status || 'unknown').replace(/_/g, ' ')}</Badge>
+}
+
+function statusColor(status) {
+  return {
+    published: 'emerald',
+    scheduled: 'indigo',
+    approved: 'sky',
+    pending_approval: 'amber',
+    failed: 'rose',
+    cancelled: 'slate',
+  }[status] || 'slate'
+}
+
 function toForm(post) {
   return {
     title: post.title || '',
@@ -226,6 +448,33 @@ function toForm(post) {
 
 function splitList(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleString()
+}
+
+function formatBytes(value) {
+  const size = Number(value || 0)
+  if (!size) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const index = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1)
+  return `${(size / (1024 ** index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+
+function countWords(value) {
+  const words = String(value || '').trim().split(/\s+/).filter(Boolean)
+  return words.length
+}
+
+function formatOptionValue(value) {
+  if (Array.isArray(value)) return value.join(', ')
+  if (value && typeof value === 'object') return JSON.stringify(value)
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  return String(value ?? '-')
 }
 
 function toDateTimeInput(value) {

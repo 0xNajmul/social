@@ -59,6 +59,37 @@ class UsageGuard
         return $result;
     }
 
+    /**
+     * @return array<string, array{used:int,limit:int|null,remaining:int|null}>
+     */
+    public function workspaceUsage(Workspace $workspace): array
+    {
+        $plan = $this->plan($workspace);
+
+        $metrics = [
+            'workspaces' => 1,
+            'social_accounts' => $workspace->socialAccounts()->count(),
+            'team_members' => $workspace->members()->count(),
+            'scheduled_posts' => $workspace->posts()->where('status', 'scheduled')->count(),
+            'monthly_posts' => $workspace->posts()->where('created_at', '>=', now()->startOfMonth())->count(),
+            'automations' => $workspace->automations()->count(),
+            'ai_credits' => $this->aiCreditsUsed(collect([$workspace->id])),
+            'storage_mb' => (int) round($workspace->mediaAssets()->sum('size') / 1048576),
+        ];
+
+        $result = [];
+        foreach ($metrics as $key => $used) {
+            $limit = $plan?->limit($key);
+            $result[$key] = [
+                'used' => $used,
+                'limit' => $limit,
+                'remaining' => is_null($limit) ? null : max(0, $limit - $used),
+            ];
+        }
+
+        return $result;
+    }
+
     public function remaining(Workspace $workspace, string $key): ?int
     {
         return $this->usage($workspace)[$key]['remaining'] ?? null;

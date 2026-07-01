@@ -5,7 +5,7 @@ import api from '../../lib/api'
 import { mediaUrl } from '../../lib/media'
 import { Button, Input } from '../ui'
 
-export default function MediaLibraryPicker({ open, onClose, onAdd, existingIds = [] }) {
+export default function MediaLibraryPicker({ open, onClose, onAdd, existingIds = [], allowedTypes = null, title = 'Media library', description = 'Select one or more files to attach to your post.' }) {
   const [assets, setAssets] = useState([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -23,11 +23,16 @@ export default function MediaLibraryPicker({ open, onClose, onAdd, existingIds =
     const timer = setTimeout(() => {
       api
         .get('/media', { params: { per_page: 100, search: search || undefined } })
-        .then(({ data }) => setAssets(data.data || []))
+        .then(({ data }) => {
+          const nextAssets = data.data || []
+          setAssets(Array.isArray(allowedTypes) && allowedTypes.length
+            ? nextAssets.filter((asset) => allowedTypes.includes(asset.type))
+            : nextAssets)
+        })
         .finally(() => setLoading(false))
     }, search ? 300 : 0)
     return () => clearTimeout(timer)
-  }, [open, search])
+  }, [allowedTypes, open, search])
 
   if (!open) return null
 
@@ -55,8 +60,8 @@ export default function MediaLibraryPicker({ open, onClose, onAdd, existingIds =
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Media library</h2>
-            <p className="text-xs text-slate-500">Select one or more files to attach to your post.</p>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
+            <p className="text-xs text-slate-500">{description}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
             <X className="h-5 w-5" />

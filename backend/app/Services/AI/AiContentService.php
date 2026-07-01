@@ -3,9 +3,11 @@
 namespace App\Services\AI;
 
 use App\Models\AiGeneration;
+use App\Models\PlatformSetting;
 use App\Models\Workspace;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * Generates marketing copy. When an OpenAI key is configured it calls the
@@ -23,6 +25,21 @@ class AiContentService
 
         return $this->generate($workspace, 'caption',
             "Write a {$tone} {$platform} caption about: {$topic}. Include a call to action.",
+            fn () => $this->fallbackCaption($topic, $tone),
+            $params,
+        );
+    }
+
+    public function content(Workspace $workspace, string $topic, array $params = []): string
+    {
+        $tone = $params['tone'] ?? 'professional';
+        $length = $params['length'] ?? 'medium';
+        $type = str_replace('_', ' ', (string) ($params['content_type'] ?? 'social_post'));
+        $instruction = trim((string) ($params['prompt'] ?? 'Create a useful social post that is ready to publish.'));
+        $cta = ($params['include_cta'] ?? true) ? ' Include a natural call to action.' : '';
+
+        return $this->generate($workspace, 'content',
+            "{$instruction}\n\nWrite a {$length}, {$tone} {$type} about:\n{$topic}\n{$cta}",
             fn () => $this->fallbackCaption($topic, $tone),
             $params,
         );
@@ -128,24 +145,78 @@ class AiContentService
      */
     protected function callProvider(string $prompt, callable $fallback): array
     {
-        $key = config('services.openai.key');
+        $settings = PlatformSetting::valueFor('ai', []);
+        $settings = array_replace_recursive(
+            AiProviderRegistry::defaultSettings(),
+            is_array($settings) ? $settings : [],
+        );
+        $provider = $settings['provider'] ?? 'openai';
+        $model = $settings['model'] ?: AiProviderRegistry::defaultModel($provider);
 
-        if (! $key) {
+        if ($provider === 'fallback') {
             return [$fallback(), 0, 'fallback'];
         }
 
-        $model = config('services.openai.model', 'gpt-4o-mini');
+        $key = AiProviderRegistry::apiKey($provider, $settings);
+        $baseUrl = AiProviderRegistry::baseUrl($provider, $settings);
 
-        $response = Http::withToken($key)
-            ->baseUrl(config('services.openai.base_url'))
-            ->timeout(30)
+        if (! $key && $provider !== 'custom') {
+            return [$fallback(), 0, 'fallback'];
+        }
+
+        $systemPrompt = trim((string) ($settings['system_prompt'] ?? 'You are an expert social media copywriter.'));
+        $temperature = is_numeric($settings['temperature'] ?? null)
+            ? max(0, min((float) $settings['temperature'], 2))
+            : 0.8;
+        $maxTokens = is_numeric($settings['max_tokens'] ?? null)
+            ? max(128, min((int) $settings['max_tokens'], 4096))
+            : 1200;
+
+        try {
+            return match (AiProviderRegistry::driver($provider)) {
+                'anthropic' => $this->callAnthropic($baseUrl, (string) $key, $model, $systemPrompt, $prompt, $temperature, $maxTokens, $fallback),
+                'google' => $this->callGoogle($baseUrl, (string) $key, $model, $systemPrompt, $prompt, $temperature, $maxTokens, $fallback),
+                'cohere' => $this->callCohere($baseUrl, (string) $key, $model, $systemPrompt, $prompt, $temperature, $maxTokens, $fallback),
+                default => $this->callOpenAiCompatible($provider, $baseUrl, $key, $model, $systemPrompt, $prompt, $temperature, $maxTokens, $fallback),
+            };
+        } catch (Throwable) {
+            return [$fallback(), 0, 'fallback'];
+        }
+    }
+
+    /**
+     * @param  callable():string  $fallback
+     * @return array{0:string,1:int,2:string}
+     */
+    protected function callOpenAiCompatible(string $provider, string $baseUrl, ?string $key, string $model, string $systemPrompt, string $prompt, float $temperature, int $maxTokens, callable $fallback): array
+    {
+        if (! $baseUrl) {
+            return [$fallback(), 0, 'fallback'];
+        }
+
+        $request = Http::timeout(30)->acceptJson();
+
+        if ($key) {
+            $request = $request->withToken($key);
+        }
+
+        if ($provider === 'openrouter') {
+            $request = $request->withHeaders([
+                'HTTP-Referer' => config('app.url'),
+                'X-Title' => config('app.name', 'Postflow'),
+            ]);
+        }
+
+        $response = $request
+            ->baseUrl($baseUrl)
             ->post('/chat/completions', [
                 'model' => $model,
                 'messages' => [
-                    ['role' => 'system', 'content' => 'You are an expert social media copywriter.'],
+                    ['role' => 'system', 'content' => $systemPrompt ?: 'You are an expert social media copywriter.'],
                     ['role' => 'user', 'content' => $prompt],
                 ],
-                'temperature' => 0.8,
+                'temperature' => $temperature,
+                'max_tokens' => $maxTokens,
             ]);
 
         if (! $response->successful()) {
@@ -155,6 +226,107 @@ class AiContentService
         return [
             trim((string) $response->json('choices.0.message.content', $fallback())),
             (int) $response->json('usage.total_tokens', 0),
+            $model,
+        ];
+    }
+
+    /**
+     * @param  callable():string  $fallback
+     * @return array{0:string,1:int,2:string}
+     */
+    protected function callAnthropic(string $baseUrl, string $key, string $model, string $systemPrompt, string $prompt, float $temperature, int $maxTokens, callable $fallback): array
+    {
+        $response = Http::timeout(30)
+            ->acceptJson()
+            ->withHeaders([
+                'x-api-key' => $key,
+                'anthropic-version' => config('services.anthropic.version', '2023-06-01'),
+            ])
+            ->baseUrl($baseUrl)
+            ->post('/messages', [
+                'model' => $model,
+                'max_tokens' => $maxTokens,
+                'temperature' => $temperature,
+                'system' => $systemPrompt ?: 'You are an expert social media copywriter.',
+                'messages' => [
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+            ]);
+
+        if (! $response->successful()) {
+            return [$fallback(), 0, 'fallback'];
+        }
+
+        return [
+            trim((string) $response->json('content.0.text', $fallback())),
+            (int) $response->json('usage.input_tokens', 0) + (int) $response->json('usage.output_tokens', 0),
+            $model,
+        ];
+    }
+
+    /**
+     * @param  callable():string  $fallback
+     * @return array{0:string,1:int,2:string}
+     */
+    protected function callGoogle(string $baseUrl, string $key, string $model, string $systemPrompt, string $prompt, float $temperature, int $maxTokens, callable $fallback): array
+    {
+        $modelName = str_starts_with($model, 'models/') ? $model : "models/{$model}";
+        $response = Http::timeout(30)
+            ->acceptJson()
+            ->post(rtrim($baseUrl, '/')."/{$modelName}:generateContent?key=".urlencode($key), [
+                'systemInstruction' => [
+                    'parts' => [['text' => $systemPrompt ?: 'You are an expert social media copywriter.']],
+                ],
+                'contents' => [
+                    [
+                        'role' => 'user',
+                        'parts' => [['text' => $prompt]],
+                    ],
+                ],
+                'generationConfig' => [
+                    'temperature' => $temperature,
+                    'maxOutputTokens' => $maxTokens,
+                ],
+            ]);
+
+        if (! $response->successful()) {
+            return [$fallback(), 0, 'fallback'];
+        }
+
+        return [
+            trim((string) $response->json('candidates.0.content.parts.0.text', $fallback())),
+            (int) $response->json('usageMetadata.totalTokenCount', 0),
+            $model,
+        ];
+    }
+
+    /**
+     * @param  callable():string  $fallback
+     * @return array{0:string,1:int,2:string}
+     */
+    protected function callCohere(string $baseUrl, string $key, string $model, string $systemPrompt, string $prompt, float $temperature, int $maxTokens, callable $fallback): array
+    {
+        $response = Http::timeout(30)
+            ->acceptJson()
+            ->withToken($key)
+            ->baseUrl($baseUrl)
+            ->post('/v2/chat', [
+                'model' => $model,
+                'messages' => [
+                    ['role' => 'system', 'content' => $systemPrompt ?: 'You are an expert social media copywriter.'],
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+                'temperature' => $temperature,
+                'max_tokens' => $maxTokens,
+            ]);
+
+        if (! $response->successful()) {
+            return [$fallback(), 0, 'fallback'];
+        }
+
+        return [
+            trim((string) ($response->json('message.content.0.text') ?? $response->json('text') ?? $fallback())),
+            (int) $response->json('usage.tokens.total_tokens', 0),
             $model,
         ];
     }

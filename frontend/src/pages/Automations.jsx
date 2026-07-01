@@ -23,6 +23,7 @@ import { Badge, Button, Card, EmptyState, PageLoader, ConfirmDialog } from '../c
 import AutomationCreateModal from '../components/automations/AutomationCreateModal'
 import { DATA_CHANGED_EVENT } from '../lib/appEvents'
 import useInfiniteList from '../hooks/useInfiniteList'
+import usePageSize from '../hooks/usePageSize'
 
 const CATEGORY_KEY = 'postflow_automation_categories'
 const CATEGORY_MAP_KEY = 'postflow_automation_category_map'
@@ -42,7 +43,10 @@ const SORT_OPTIONS = [
 export default function Automations() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const pageSize = usePageSize('automations', 24)
   const [automations, setAutomations] = useState(null)
+  const [automationMeta, setAutomationMeta] = useState(null)
+  const [loadingMoreAutomations, setLoadingMoreAutomations] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [createMenuOpen, setCreateMenuOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -60,17 +64,33 @@ export default function Automations() {
   const menuRef = useRef(null)
   const activeTab = normalizeLibraryTab(searchParams.get('tab'), categories)
 
-  const load = useCallback(() => {
-    api.get('/automations').then(({ data }) => setAutomations(data.data)).catch(() => setAutomations([]))
-  }, [])
+  const load = useCallback((page = 1, append = false) => {
+    if (append) setLoadingMoreAutomations(true)
+    return api.get('/automations', { params: { per_page: pageSize, page } })
+      .then(({ data }) => {
+        const nextAutomations = data.data || []
+        setAutomations((current) => append ? [...(current || []), ...nextAutomations] : nextAutomations)
+        setAutomationMeta(data.meta || null)
+      })
+      .catch(() => {
+        if (!append) {
+          setAutomations([])
+          setAutomationMeta(null)
+        }
+      })
+      .finally(() => {
+        if (append) setLoadingMoreAutomations(false)
+      })
+  }, [pageSize])
 
   useEffect(() => {
-    load()
-    const interval = window.setInterval(load, 30000)
-    window.addEventListener(DATA_CHANGED_EVENT, load)
+    const refresh = () => load()
+    refresh()
+    const interval = window.setInterval(refresh, 30000)
+    window.addEventListener(DATA_CHANGED_EVENT, refresh)
     return () => {
       window.clearInterval(interval)
-      window.removeEventListener(DATA_CHANGED_EVENT, load)
+      window.removeEventListener(DATA_CHANGED_EVENT, refresh)
     }
   }, [load])
 
@@ -131,8 +151,8 @@ export default function Automations() {
 
   const run = async (event, id) => {
     event.stopPropagation()
-    await api.post(`/automations/${id}/run`)
-    notify('success', 'Automation queued.')
+    const { data } = await api.post(`/automations/${id}/run`)
+    notify('success', data.message || 'Automation run started.')
   }
 
   const remove = async () => {
@@ -273,7 +293,18 @@ export default function Automations() {
     ]
   }, [automations, categories, categoryMap, favorites])
 
-  const { hasMore, items: pagedAutomations, sentinelRef } = useInfiniteList(visibleAutomations)
+  const hasServerMore = Boolean(automationMeta && automationMeta.current_page < automationMeta.last_page)
+  const loadMoreAutomations = useCallback(() => {
+    if (!hasServerMore || loadingMoreAutomations) return
+    load(automationMeta.current_page + 1, true)
+  }, [automationMeta, hasServerMore, load, loadingMoreAutomations])
+  const { hasMore, items: pagedAutomations, sentinelRef } = useInfiniteList(visibleAutomations, {
+    pageSize,
+    hasExternalMore: hasServerMore,
+    externalLoading: loadingMoreAutomations,
+    onEndReached: loadMoreAutomations,
+    resetKey: [activeTab, search, filters.status, filters.sort].join('::'),
+  })
 
   if (!automations) return <PageLoader />
 

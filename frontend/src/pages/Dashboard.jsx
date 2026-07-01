@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { CalendarClock, CheckCircle2, FileEdit, AlertTriangle, Share2, Clock3, Rss } from 'lucide-react'
 import clsx from 'clsx'
 import api from '../lib/api'
 import { Card, StatCard, PageLoader, EmptyState, Badge, Button } from '../components/ui'
 import PlatformBadge from '../components/PlatformBadge'
+import FeedItemModal from '../components/feed/FeedItemModal'
 import { DATA_CHANGED_EVENT } from '../lib/appEvents'
 
 const RANGES = [
@@ -19,19 +20,21 @@ const RANGES = [
 ]
 
 export default function Dashboard() {
-  const navigate = useNavigate()
   const [data, setData] = useState(null)
   const [posts, setPosts] = useState([])
   const [plans, setPlans] = useState([])
+  const [latestFeed, setLatestFeed] = useState([])
   const [range, setRange] = useState('all')
   const [activeTab, setActiveTab] = useState('recent_posts')
+  const [selectedFeedItem, setSelectedFeedItem] = useState(null)
 
   const loadDashboard = useCallback(() => {
     Promise.allSettled([
       api.get('/dashboard', { params: { range } }),
       api.get('/posts', { params: { per_page: 100 } }),
       api.get('/planner-notes', { params: { limit: 100 } }),
-    ]).then(([dashboardResult, postsResult, plansResult]) => {
+      api.get('/feed/items', { params: { per_page: 8 } }),
+    ]).then(([dashboardResult, postsResult, plansResult, feedResult]) => {
       if (dashboardResult.status === 'fulfilled') setData(dashboardResult.value.data)
       else setData({ error: true })
 
@@ -40,6 +43,9 @@ export default function Dashboard() {
 
       if (plansResult.status === 'fulfilled') setPlans(plansResult.value.data?.data || [])
       else setPlans([])
+
+      if (feedResult.status === 'fulfilled') setLatestFeed(normalizeDashboardFeedItems(feedResult.value.data?.data || []))
+      else setLatestFeed([])
     })
   }, [range])
 
@@ -59,18 +65,10 @@ export default function Dashboard() {
   const openPostPopup = (post) => {
     window.dispatchEvent(new CustomEvent('postflow:open-post', { detail: { id: post.id, item: post } }))
   }
-  const openActivity = (activity) => {
-    if (isPostActivity(activity) && activity.subject_id) {
-      window.dispatchEvent(new CustomEvent('postflow:open-post', { detail: { id: activity.subject_id } }))
-      return
-    }
-    navigate(activityLink(activity))
-  }
 
   if (!data) return <PageLoader />
 
   const { stats = {}, usage = {}, upcoming = [], recent_activity = [] } = data
-  const latestFeed = loadDashboardFeedItems()
   const tabItems = [
     {
       key: 'recent_posts',
@@ -100,7 +98,7 @@ export default function Dashboard() {
       key: 'latest_feed',
       label: 'Latest feed',
       to: '/app/feed',
-      rows: latestFeed.slice(0, 8),
+      rows: latestFeed,
       emptyTitle: 'No feed items',
       emptyDescription: 'Add a feed source to see the latest articles and ideas here.',
     },
@@ -167,7 +165,7 @@ export default function Dashboard() {
             {activeContent.rows.length === 0 ? (
               <EmptyState icon={activeContent.key === 'latest_feed' ? Rss : CalendarClock} title={activeContent.emptyTitle} description={activeContent.emptyDescription} action={activeContent.key === 'upcoming_posts' ? <Button type="button" size="sm" onClick={openComposerModal}>Compose</Button> : null} />
             ) : (
-              <DashboardContentTable type={activeContent.key} rows={activeContent.rows} onOpenPost={openPostPopup} />
+              <DashboardContentTable type={activeContent.key} rows={activeContent.rows} onOpenPost={openPostPopup} onOpenFeed={setSelectedFeedItem} />
             )}
           </div>
         </Card>
@@ -208,21 +206,23 @@ export default function Dashboard() {
           {recent_activity.length === 0 && <li className="px-2 py-4 text-sm text-slate-400">No activity yet.</li>}
           {recent_activity.map((a) => (
             <li key={a.id}>
-              <button type="button" onClick={() => openActivity(a)} className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-3 text-left text-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500/25 dark:hover:bg-slate-800/60">
-              <span className="text-slate-700 dark:text-slate-200">
-                <span className="font-medium">{a.user?.name || 'System'}</span> · {sanitizeActivityText(a.description || a.action)}
-              </span>
-              <span className="text-xs text-slate-400">{new Date(a.created_at).toLocaleString()}</span>
-              </button>
+              <div className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-3 text-left text-sm">
+                <span className="text-slate-700 dark:text-slate-200">
+                  <span className="font-medium">{a.user?.name || 'System'}</span> · {sanitizeActivityText(a.description || a.action)}
+                </span>
+                <span className="text-xs text-slate-400">{new Date(a.created_at).toLocaleString()}</span>
+              </div>
             </li>
           ))}
         </ul>
       </Card>
+
+      <FeedItemModal item={selectedFeedItem} onClose={() => setSelectedFeedItem(null)} />
     </div>
   )
 }
 
-function DashboardContentTable({ type, rows, onOpenPost }) {
+function DashboardContentTable({ type, rows, onOpenPost, onOpenFeed }) {
   return (
     <div className="max-h-[28rem] overflow-auto rounded-xl border border-slate-100 dark:border-slate-800">
       <table className="min-w-full divide-y divide-slate-100 text-left text-sm dark:divide-slate-800">
@@ -235,7 +235,7 @@ function DashboardContentTable({ type, rows, onOpenPost }) {
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
           {rows.map((row) => (
-            <DashboardTableRow key={`${type}-${row.id || row.url || row.title}`} type={type} row={row} onOpenPost={onOpenPost} />
+            <DashboardTableRow key={`${type}-${row.id || row.url || row.title}`} type={type} row={row} onOpenPost={onOpenPost} onOpenFeed={onOpenFeed} />
           ))}
         </tbody>
       </table>
@@ -243,7 +243,7 @@ function DashboardContentTable({ type, rows, onOpenPost }) {
   )
 }
 
-function DashboardTableRow({ type, row, onOpenPost }) {
+function DashboardTableRow({ type, row, onOpenPost, onOpenFeed }) {
   const isPost = ['recent_posts', 'upcoming_posts'].includes(type)
   const isPlan = type === 'recent_plans'
   const date = row.scheduled_at || row.published_at || row.updated_at || row.created_at || row.date
@@ -290,17 +290,21 @@ function DashboardTableRow({ type, row, onOpenPost }) {
     )
   }
 
-  if (type === 'latest_feed' && row.url) {
+  if (type === 'latest_feed') {
     return (
-      <tr className="transition hover:bg-slate-50 dark:hover:bg-slate-800/50">
-        <td className="min-w-0 px-3 py-3">
-          <a href={row.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-2 rounded-lg text-left font-medium text-slate-700 hover:text-brand-600 dark:text-slate-200 dark:hover:text-brand-300">
-            <Rss className="h-4 w-4 shrink-0 text-brand-500" />
-            <span className="line-clamp-2 min-w-0 break-words">{title}</span>
-          </a>
-        </td>
-        <td className="whitespace-nowrap px-3 py-3"><Badge color="amber">{formatCompactLabel(statusLabel)}</Badge></td>
-        <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500 dark:text-slate-400">{formatDashboardDate(date)}</td>
+      <tr
+        role="button"
+        tabIndex={0}
+        onClick={() => onOpenFeed(row)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onOpenFeed(row)
+          }
+        }}
+        className="cursor-pointer transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500/25 dark:hover:bg-slate-800/50"
+      >
+        {content}
       </tr>
     )
   }
@@ -321,31 +325,14 @@ function sortByNewestRecord(a, b) {
   return new Date(b.updated_at || b.created_at || b.scheduled_at || 0) - new Date(a.updated_at || a.created_at || a.scheduled_at || 0)
 }
 
-function loadDashboardFeedItems() {
-  if (typeof localStorage === 'undefined') return []
-  try {
-    const feeds = JSON.parse(localStorage.getItem('postflow_user_feeds') || '[]')
-    if (!Array.isArray(feeds)) return []
-    return feeds.slice().reverse().flatMap((feed) => {
-      const items = Array.isArray(feed.items) && feed.items.length ? feed.items : [{
-        id: `${feed.id || feed.name}-source`,
-        title: feed.name,
-        source: feed.name,
-        category: feed.category,
-        country: feed.country,
-        url: feed.url,
-        published_at: feed.updated_at || feed.created_at,
-      }]
-      return items.map((item) => ({
-        ...item,
-        source: item.source || feed.name,
-        type: item.category || feed.category || 'Feed',
-        date: item.published_at || item.created_at || feed.updated_at || feed.created_at,
-      }))
-    }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-  } catch {
-    return []
-  }
+function normalizeDashboardFeedItems(items = []) {
+  return items.map((item) => ({
+    ...item,
+    url: item.link || item.url,
+    type: item.category || item.source || 'Feed',
+    status_label: item.category || item.source || 'Feed',
+    date: item.published_at || item.created_at,
+  }))
 }
 
 function formatDashboardDate(value) {
@@ -364,19 +351,4 @@ function sanitizeActivityText(value) {
     .replace(/https?:\/\/api\.telegram\.org\/bot[^\s)]+/gi, 'Telegram API endpoint')
     .replace(/bot\d{6,}:[A-Za-z0-9_-]{20,}/g, 'bot[hidden]')
     .replace(/\d{6,}:[A-Za-z0-9_-]{20,}/g, '[hidden-token]')
-}
-
-function isPostActivity(activity) {
-  return String(activity.subject_type || '').toLowerCase().includes('post') || String(activity.action || '').startsWith('post.')
-}
-
-function activityLink(activity) {
-  const text = `${activity.subject_type || ''} ${activity.type || ''} ${activity.action || ''} ${activity.description || ''}`.toLowerCase()
-  if (text.includes('post') || text.includes('publish') || text.includes('approval')) return '/app/organizer'
-  if (text.includes('planner') || text.includes('plan')) return '/app/planner'
-  if (text.includes('media') || text.includes('upload')) return '/app/media'
-  if (text.includes('account') || text.includes('token')) return '/app/accounts'
-  if (text.includes('automation')) return '/app/automations'
-  if (text.includes('billing') || text.includes('subscription') || text.includes('plan')) return '/app/billing'
-  return '/app/notifications'
 }

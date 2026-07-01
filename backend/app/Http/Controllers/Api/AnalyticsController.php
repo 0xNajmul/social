@@ -3,14 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncAnalyticsJob;
 use App\Models\AnalyticsSnapshot;
 use App\Models\Post;
 use App\Models\PublishedPost;
+use App\Models\SocialAccount;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 class AnalyticsController extends Controller
 {
@@ -56,6 +59,71 @@ class AnalyticsController extends Controller
             'worst_posts' => $this->performancePosts($workspace->id, $from, $to, $accountId, 'worst'),
             'upcoming_posts' => $this->upcomingPosts($workspace->id, $accountId),
             'account_growth' => $this->accountGrowth($workspace->id, $from, $to, $accountId),
+        ]);
+    }
+
+    public function sync(Request $request): JsonResponse
+    {
+        $workspace = workspace();
+        $accountId = $request->integer('account_id') ?: null;
+
+        $accounts = SocialAccount::where('workspace_id', $workspace->id)
+            ->when($accountId, fn ($query) => $query->whereKey($accountId))
+            ->get();
+
+        if ($accountId && $accounts->isEmpty()) {
+            abort(404, 'Analytics account not found.');
+        }
+
+        if ($accounts->isEmpty()) {
+            return response()->json([
+                'message' => 'Connect a social account before syncing analytics.',
+                'results' => [],
+            ], 422);
+        }
+
+        $synced = 0;
+        $failed = 0;
+        $results = [];
+
+        foreach ($accounts as $account) {
+            try {
+                app()->call([new SyncAnalyticsJob($account->id), 'handle']);
+                $account->refresh();
+                $synced++;
+
+                $results[] = [
+                    'social_account_id' => (int) $account->id,
+                    'platform' => $account->platform,
+                    'status' => 'synced',
+                    'last_synced_at' => $account->last_synced_at,
+                ];
+            } catch (Throwable $exception) {
+                report($exception);
+                $failed++;
+
+                $account->update([
+                    'status_message' => 'Analytics sync failed: '.Str::limit($exception->getMessage(), 160),
+                ]);
+
+                $results[] = [
+                    'social_account_id' => (int) $account->id,
+                    'platform' => $account->platform,
+                    'status' => 'failed',
+                    'message' => 'Unable to sync this platform right now.',
+                ];
+            }
+        }
+
+        $message = $failed > 0
+            ? sprintf('Synced %d %s. %d could not be synced.', $synced, Str::plural('account', $synced), $failed)
+            : sprintf('Synced %d %s.', $synced, Str::plural('account', $synced));
+
+        return response()->json([
+            'message' => $message,
+            'synced' => $synced,
+            'failed' => $failed,
+            'results' => $results,
         ]);
     }
 

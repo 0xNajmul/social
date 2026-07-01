@@ -18,7 +18,7 @@ export default function PlanEditorModal({ open, note = null, initialScheduledAt 
   const [errors, setErrors] = useState({})
   const [busy, setBusy] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
-  const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  const [aiPanelOpen, setAiPanelOpen] = useState(() => !note)
   const [termPickerOpen, setTermPickerOpen] = useState(null)
   const [customCategories, setCustomCategories] = useState(() => loadPlannerTerms('planner_custom_categories'))
   const [customTags, setCustomTags] = useState(() => loadPlannerTerms('planner_custom_tags'))
@@ -67,13 +67,15 @@ export default function PlanEditorModal({ open, note = null, initialScheduledAt 
         content: plainText(form.content_html),
         tone: 'professional',
       })
-      const generated = textToHtml(data.result || '')
+      const result = normalizeAiResult(data.result)
+      if (!result) throw new Error('AI returned an empty response.')
+      const generated = textToHtml(result)
       setForm((current) => ({
         ...current,
         content_html: current.content_html ? `${current.content_html}<p><br></p>${generated}` : generated,
       }))
     } catch (error) {
-      setErrors({ ai: error.response?.data?.message || 'Could not generate AI content right now.' })
+      setErrors({ ai: error.response?.data?.message || error.message || 'Could not generate AI content right now.' })
     } finally {
       setAiBusy(false)
     }
@@ -396,6 +398,12 @@ function textToHtml(text = '') {
     .filter(Boolean)
     .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
     .join('')
+}
+
+function normalizeAiResult(result) {
+  if (Array.isArray(result)) return result.filter(Boolean).join(' ')
+  if (result && typeof result === 'object') return Object.values(result).filter(Boolean).join('\n')
+  return String(result || '').trim()
 }
 
 function escapeHtml(value) {

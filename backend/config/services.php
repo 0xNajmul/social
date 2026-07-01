@@ -40,10 +40,76 @@ return [
     | AI providers
     |--------------------------------------------------------------------------
     */
+    'ai' => [
+        'default_provider' => env('AI_PROVIDER', 'openai'),
+        'default_model' => env('AI_MODEL', env('OPENAI_MODEL', 'gpt-4o-mini')),
+    ],
+
     'openai' => [
         'key' => env('OPENAI_API_KEY'),
         'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
         'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+    ],
+
+    'anthropic' => [
+        'key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('ANTHROPIC_MODEL', 'claude-3-5-sonnet-latest'),
+        'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com/v1'),
+        'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
+    ],
+
+    'google_ai' => [
+        'key' => env('GOOGLE_AI_API_KEY'),
+        'model' => env('GOOGLE_AI_MODEL', 'gemini-2.5-flash'),
+        'base_url' => env('GOOGLE_AI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
+    ],
+
+    'xai' => [
+        'key' => env('XAI_API_KEY'),
+        'model' => env('XAI_MODEL', 'grok-4.3'),
+        'base_url' => env('XAI_BASE_URL', 'https://api.x.ai/v1'),
+    ],
+
+    'mistral' => [
+        'key' => env('MISTRAL_API_KEY'),
+        'model' => env('MISTRAL_MODEL', 'mistral-large-latest'),
+        'base_url' => env('MISTRAL_BASE_URL', 'https://api.mistral.ai/v1'),
+    ],
+
+    'groq' => [
+        'key' => env('GROQ_API_KEY'),
+        'model' => env('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+        'base_url' => env('GROQ_BASE_URL', 'https://api.groq.com/openai/v1'),
+    ],
+
+    'openrouter' => [
+        'key' => env('OPENROUTER_API_KEY'),
+        'model' => env('OPENROUTER_MODEL', '~openai/gpt-latest'),
+        'base_url' => env('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1'),
+    ],
+
+    'deepseek' => [
+        'key' => env('DEEPSEEK_API_KEY'),
+        'model' => env('DEEPSEEK_MODEL', 'deepseek-chat'),
+        'base_url' => env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1'),
+    ],
+
+    'perplexity' => [
+        'key' => env('PERPLEXITY_API_KEY'),
+        'model' => env('PERPLEXITY_MODEL', 'sonar'),
+        'base_url' => env('PERPLEXITY_BASE_URL', 'https://api.perplexity.ai'),
+    ],
+
+    'cohere' => [
+        'key' => env('COHERE_API_KEY'),
+        'model' => env('COHERE_MODEL', 'command-a-03-2025'),
+        'base_url' => env('COHERE_BASE_URL', 'https://api.cohere.com'),
+    ],
+
+    'custom_ai' => [
+        'key' => env('CUSTOM_AI_API_KEY'),
+        'model' => env('CUSTOM_AI_MODEL'),
+        'base_url' => env('CUSTOM_AI_BASE_URL'),
     ],
 
     /*
@@ -61,6 +127,18 @@ return [
         'vendor_id' => env('PADDLE_VENDOR_ID'),
         'api_key' => env('PADDLE_API_KEY'),
         'webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
+    ],
+
+    'dodo' => [
+        'api_key' => env('DODO_API_KEY'),
+        'base_url' => rtrim(env('DODO_API_BASE', 'https://live.dodopayments.com'), '/'),
+        'webhook_secret' => env('DODO_WEBHOOK_SECRET'),
+    ],
+
+    'creem' => [
+        'api_key' => env('CREEM_API_KEY'),
+        'base_url' => rtrim(env('CREEM_API_BASE', 'https://api.creem.io'), '/'),
+        'webhook_secret' => env('CREEM_WEBHOOK_SECRET'),
     ],
 
     /*
@@ -115,7 +193,10 @@ return [
     'twitter' => [
         'client_id' => env('TWITTER_CLIENT_ID'),
         'client_secret' => env('TWITTER_CLIENT_SECRET'),
-        'redirect' => env('TWITTER_REDIRECT_URI'),
+        'redirect' => env(
+            'TWITTER_REDIRECT_URI',
+            rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/twitter/callback',
+        ),
         'scopes' => array_values(array_filter(array_map(
             'trim',
             explode(',', env('TWITTER_SCOPES', 'tweet.read,tweet.write,users.read,offline.access')),
@@ -160,7 +241,7 @@ return [
             rtrim(env('APP_URL', 'http://localhost:8000'), '/').'/api/oauth/reddit/callback',
         ),
         'api_base' => rtrim(env('REDDIT_API_BASE', 'https://oauth.reddit.com'), '/'),
-        'user_agent' => env('REDDIT_USER_AGENT', 'web:postflow.social-automation:v1.0.0 (by /u/your_reddit_username)'),
+        'user_agent' => env('REDDIT_USER_AGENT', 'web:postflow.social-automation:v1.0.0'),
         'scopes' => array_values(array_filter(array_map(
             'trim',
             explode(',', env('REDDIT_SCOPES', 'identity,mysubreddits,read,submit,edit')),

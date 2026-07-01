@@ -12,6 +12,7 @@ const Roles = lazy(() => import('./pages/Roles'))
 const Posts = lazy(() => import('./pages/Posts'))
 const PostDetail = lazy(() => import('./pages/PostDetail'))
 const Feed = lazy(() => import('./pages/Feed'))
+const News = lazy(() => import('./pages/News'))
 const AdminDataPage = lazy(() => import('./pages/AdminDataPage'))
 const Plans = lazy(() => import('./pages/Plans'))
 const Workspaces = lazy(() => import('./pages/Workspaces'))
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="posts" element={<Posts />} />
               <Route path="posts/:id" element={<PostDetail />} />
               <Route path="feed" element={<Feed />} />
+              <Route path="news" element={<News />} />
               <Route path="planners" element={<AdminDataPage type="planners" />} />
               <Route path="media" element={<AdminDataPage type="media" />} />
               <Route path="automations" element={<AdminDataPage type="automations" />} />
@@ -56,7 +58,8 @@ export default function App() {
               <Route path="reports/notifications" element={<AdminDataPage type="report-notifications" />} />
               <Route path="reports/affiliate-incomes" element={<AdminDataPage type="report-affiliate-incomes" />} />
               <Route path="reports/login-history" element={<AdminDataPage type="report-login-history" />} />
-              <Route path="reports/ai-usage-history" element={<AdminDataPage type="report-ai-usage-history" />} />
+              <Route path="reports/ai-usage" element={<AdminDataPage type="report-ai-usage" />} />
+              <Route path="reports/ai-usage-history" element={<AdminDataPage type="report-ai-usage" />} />
               <Route path="reports/email-history" element={<AdminDataPage type="report-email-history" />} />
               <Route path="reports/user-transaction-history" element={<AdminDataPage type="report-user-transaction-history" />} />
               <Route path="reports/activity-logs" element={<AdminDataPage type="report-activity-logs" />} />

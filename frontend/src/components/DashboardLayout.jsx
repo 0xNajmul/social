@@ -42,6 +42,7 @@ const MOBILE_NAV = [
 
 const ACCOUNT_NAV = [
   { key: 'profile', to: '/app/profile', label: 'Profile', icon: UserRound },
+  { key: 'public-profile', to: '/app/public-profile', label: 'Public Profile', icon: CircleUserRound },
   { key: 'settings', to: '/app/settings', label: 'Settings', icon: Settings },
   { key: 'pricing', to: '/app/pricing-plan', label: 'Pricing plan', icon: CreditCard },
   { key: 'invite', to: '/app/invite', label: 'Invite & earn', icon: Gift },
@@ -87,11 +88,11 @@ export default function DashboardLayout() {
       setSidebarUserMenuOpen(false)
     }
 
-    document.addEventListener('mousedown', closeMenu)
+    document.addEventListener('mousedown', closeMenu, true)
     document.addEventListener('keydown', closeOnEscape)
     window.addEventListener('postflow:navigation-confirmed', closeAfterGuardedNavigation)
     return () => {
-      document.removeEventListener('mousedown', closeMenu)
+      document.removeEventListener('mousedown', closeMenu, true)
       document.removeEventListener('keydown', closeOnEscape)
       window.removeEventListener('postflow:navigation-confirmed', closeAfterGuardedNavigation)
     }
@@ -375,6 +376,7 @@ export default function DashboardLayout() {
                 if (type.startsWith('post.') && notification.data?.post_id) {
                   window.dispatchEvent(new CustomEvent('postflow:open-post', { detail: { id: notification.data.post_id } }))
                 } else if (type.startsWith('post.')) navigate('/app/organizer')
+                if (type === 'automation.workflow' && notification.data?.action_url) navigate(notification.data.action_url)
                 if (type === 'account.token_expiring') navigate('/app/accounts')
               }}
             />
@@ -455,6 +457,15 @@ export default function DashboardLayout() {
           >
             <UserRound className="h-4 w-4" />
             Profile
+          </NavLink>
+          <NavLink
+            to="/app/public-profile"
+            onClick={(event) => guardedNavigation(event, '/app/public-profile', () => setUserMenuOpen(false))}
+            className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+            role="menuitem"
+          >
+            <CircleUserRound className="h-4 w-4" />
+            Public Profile
           </NavLink>
           <NavLink
             to="/app/notifications"

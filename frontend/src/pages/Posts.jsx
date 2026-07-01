@@ -6,6 +6,7 @@ import { DATA_CHANGED_EVENT } from '../lib/appEvents'
 import { Badge, Button, Card, EmptyState, PageLoader } from '../components/ui'
 import PlatformBadge from '../components/PlatformBadge'
 import useInfiniteList from '../hooks/useInfiniteList'
+import usePageSize from '../hooks/usePageSize'
 
 const STATUS_FILTERS = [
   ['all', 'All posts'],
@@ -26,7 +27,10 @@ const SORT_OPTIONS = [
 ]
 
 export default function Posts() {
+  const pageSize = usePageSize('posts', 30)
   const [posts, setPosts] = useState(null)
+  const [postMeta, setPostMeta] = useState(null)
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false)
   const [accounts, setAccounts] = useState([])
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
@@ -43,13 +47,27 @@ export default function Posts() {
   const [customTags, setCustomTags] = useState(() => loadPostTerms('post_custom_tags'))
   const [deletedCategories, setDeletedCategories] = useState(() => loadPostTerms('post_deleted_categories'))
   const [deletedTags, setDeletedTags] = useState(() => loadPostTerms('post_deleted_tags'))
+  const [tagColors, setTagColors] = useState(() => loadPostTermColors('post_tag_colors'))
   const quickFilterRef = useRef(null)
 
-  const loadPosts = useCallback(() => {
-    api.get('/posts', { params: { per_page: 100 } })
-      .then(({ data }) => setPosts(data.data || []))
-      .catch(() => setPosts([]))
-  }, [])
+  const loadPosts = useCallback((page = 1, append = false) => {
+    if (append) setLoadingMorePosts(true)
+    return api.get('/posts', { params: { per_page: pageSize, page } })
+      .then(({ data }) => {
+        const nextPosts = data.data || []
+        setPosts((current) => append ? [...(current || []), ...nextPosts] : nextPosts)
+        setPostMeta(data.meta || null)
+      })
+      .catch(() => {
+        if (!append) {
+          setPosts([])
+          setPostMeta(null)
+        }
+      })
+      .finally(() => {
+        if (append) setLoadingMorePosts(false)
+      })
+  }, [pageSize])
 
   useEffect(() => {
     api.get('/social/accounts')
@@ -58,12 +76,13 @@ export default function Posts() {
   }, [])
 
   useEffect(() => {
-    loadPosts()
-    const interval = window.setInterval(loadPosts, 30000)
-    window.addEventListener(DATA_CHANGED_EVENT, loadPosts)
+    const refresh = () => loadPosts()
+    refresh()
+    const interval = window.setInterval(refresh, 30000)
+    window.addEventListener(DATA_CHANGED_EVENT, refresh)
     return () => {
       window.clearInterval(interval)
-      window.removeEventListener(DATA_CHANGED_EVENT, loadPosts)
+      window.removeEventListener(DATA_CHANGED_EVENT, refresh)
     }
   }, [loadPosts])
 
@@ -92,6 +111,10 @@ export default function Posts() {
   }, [deletedTags])
 
   useEffect(() => {
+    storePostTermColors('post_tag_colors', tagColors)
+  }, [tagColors])
+
+  useEffect(() => {
     if (!quickFilter) return undefined
     const closeQuickFilter = (event) => {
       if (quickFilterRef.current?.contains(event.target)) return
@@ -110,6 +133,7 @@ export default function Posts() {
 
   const categoryOptions = useMemo(() => mergePostTerms(posts, 'categories', customCategories).filter((term) => !deletedCategories.includes(term)), [customCategories, deletedCategories, posts])
   const tagOptions = useMemo(() => mergePostTerms(posts, 'tags', customTags).filter((term) => !deletedTags.includes(term)), [customTags, deletedTags, posts])
+  const tagColorOptions = useMemo(() => ({ ...collectPostTagColors(posts), ...tagColors }), [posts, tagColors])
 
   const visiblePosts = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -143,6 +167,23 @@ export default function Posts() {
     window.dispatchEvent(new CustomEvent('postflow:open-post', { detail: { id: post.id, item: post } }))
   }
 
+  const addCategoryTerm = (value) => {
+    const term = cleanPostTerm(value)
+    if (!term) return false
+    setCustomCategories((current) => uniquePostTerms([...current, term]))
+    setDeletedCategories((current) => current.filter((item) => item.toLowerCase() !== term.toLowerCase()))
+    return true
+  }
+
+  const addTagTerm = (value) => {
+    const term = cleanPostTerm(value)
+    if (!term) return false
+    setCustomTags((current) => uniquePostTerms([...current, term]))
+    setDeletedTags((current) => current.filter((item) => item.toLowerCase() !== term.toLowerCase()))
+    setTagColors((current) => current[term] ? current : { ...current, [term]: DEFAULT_POST_TAG_COLORS[0] })
+    return true
+  }
+
   const deleteCategoryTerm = (term) => {
     setCustomCategories((current) => current.filter((item) => item !== term))
     setSelectedCategories((current) => current.filter((item) => item !== term))
@@ -153,10 +194,26 @@ export default function Posts() {
     setCustomTags((current) => current.filter((item) => item !== term))
     setSelectedTags((current) => current.filter((item) => item !== term))
     setDeletedTags((current) => uniquePostTerms([...current, term]))
+    setTagColors((current) => {
+      const next = { ...current }
+      delete next[term]
+      return next
+    })
   }
 
   const hasActiveFilters = status !== 'all' || sort !== 'newest' || accountFilter !== 'all' || selectedCategories.length > 0 || selectedTags.length > 0
-  const { hasMore, items: pagedPosts, sentinelRef } = useInfiniteList(visiblePosts)
+  const hasServerMore = Boolean(postMeta && postMeta.current_page < postMeta.last_page)
+  const loadMorePosts = useCallback(() => {
+    if (!hasServerMore || loadingMorePosts) return
+    loadPosts(postMeta.current_page + 1, true)
+  }, [hasServerMore, loadPosts, loadingMorePosts, postMeta])
+  const { hasMore, items: pagedPosts, sentinelRef } = useInfiniteList(visiblePosts, {
+    pageSize,
+    hasExternalMore: hasServerMore,
+    externalLoading: loadingMorePosts,
+    onEndReached: loadMorePosts,
+    resetKey: [search, status, accountFilter, sort, selectedCategories.join('|'), selectedTags.join('|')].join('::'),
+  })
 
   if (!posts) return <PageLoader />
 
@@ -237,6 +294,7 @@ export default function Posts() {
               terms={categoryOptions}
               selected={selectedCategories}
               onToggle={(category) => setSelectedCategories((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category])}
+              onAdd={addCategoryTerm}
               onDelete={deleteCategoryTerm}
               onReset={() => setSelectedCategories([])}
               onClose={() => setQuickFilter(null)}
@@ -252,9 +310,12 @@ export default function Posts() {
               terms={tagOptions}
               selected={selectedTags}
               onToggle={(tag) => setSelectedTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag])}
+              onAdd={addTagTerm}
               onDelete={deleteTagTerm}
               onReset={() => setSelectedTags([])}
               onClose={() => setQuickFilter(null)}
+              termColors={tagColorOptions}
+              onColorChange={(term, color) => setTagColors((current) => ({ ...current, [term]: color }))}
               prefix="#"
             />
           </div>
@@ -299,8 +360,12 @@ export default function Posts() {
         onTagSearch={setTagSearch}
         onToggleCategory={(category) => setSelectedCategories((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category])}
         onToggleTag={(tag) => setSelectedTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag])}
+        onAddCategory={addCategoryTerm}
+        onAddTag={addTagTerm}
         onDeleteCategory={deleteCategoryTerm}
         onDeleteTag={deleteTagTerm}
+        tagColors={tagColorOptions}
+        onTagColorChange={(term, color) => setTagColors((current) => ({ ...current, [term]: color }))}
         onReset={() => {
           setStatus('all')
           setSort('newest')
@@ -333,10 +398,16 @@ function PostFilterDrawer({
   onTagSearch,
   onToggleCategory,
   onToggleTag,
+  onAddCategory,
+  onAddTag,
   onDeleteCategory,
   onDeleteTag,
+  tagColors,
+  onTagColorChange,
   onReset,
 }) {
+  const [openSections, setOpenSections] = useState(() => loadPostFilterSections())
+
   useEffect(() => {
     if (!open) return undefined
     const closeOnEscape = (event) => {
@@ -345,6 +416,19 @@ function PostFilterDrawer({
     document.addEventListener('keydown', closeOnEscape)
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [onClose, open])
+
+  useEffect(() => {
+    localStorage.setItem('post_filter_sections', JSON.stringify(openSections))
+  }, [openSections])
+
+  const toggleSection = (key) => {
+    setOpenSections((current) => ({ ...current, [key]: !current[key] }))
+  }
+  const activeStatus = STATUS_FILTERS.find(([value]) => value === status)?.[1] || 'All posts'
+  const activeSort = SORT_OPTIONS.find(([value]) => value === sort)?.[1] || 'Newest first'
+  const activeAccount = accountFilter === 'all'
+    ? 'All accounts'
+    : accounts.find((account) => String(account.id) === String(accountFilter))?.name || 'Selected account'
 
   return (
     <div className={clsx('fixed inset-0 z-[220] transition', open ? 'pointer-events-auto' : 'pointer-events-none')} aria-hidden={!open}>
@@ -368,22 +452,42 @@ function PostFilterDrawer({
           </button>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
-          <FilterCard title="Status" description="Drafts, scheduled posts, published posts, and failures.">
-            <select value={status} onChange={(event) => onStatusChange(event.target.value)} className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          <FilterAccordionCard
+            title="Status"
+            description={activeStatus}
+            icon={ListFilter}
+            open={openSections.status}
+            onToggle={() => toggleSection('status')}
+          >
+            <select value={status} onChange={(event) => onStatusChange(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
               {STATUS_FILTERS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-          </FilterCard>
-          <FilterCard title="Social account" description="Limit results to posts targeting one connected account.">
-            <select value={accountFilter} onChange={(event) => onAccountFilterChange(event.target.value)} className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          </FilterAccordionCard>
+          <FilterAccordionCard
+            title="Social account"
+            description={activeAccount}
+            icon={UserRound}
+            open={openSections.account}
+            onToggle={() => toggleSection('account')}
+          >
+            <select value={accountFilter} onChange={(event) => onAccountFilterChange(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
               <option value="all">All accounts</option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>{account.name} ({account.platform_label || account.platform})</option>
               ))}
             </select>
-          </FilterCard>
-          <FilterCard title="Categories" description={`${selectedCategories.length} selected`}>
+          </FilterAccordionCard>
+          <FilterAccordionCard
+            title="Categories"
+            description={`${selectedCategories.length} selected`}
+            icon={List}
+            open={openSections.categories}
+            onToggle={() => toggleSection('categories')}
+          >
             <PostTermFilterPanel
               emptyText="No post categories yet."
+              newLabel="New category"
+              onAdd={onAddCategory}
               onDelete={onDeleteCategory}
               onSearch={onCategorySearch}
               onToggle={onToggleCategory}
@@ -392,25 +496,41 @@ function PostFilterDrawer({
               selected={selectedCategories}
               terms={categories}
             />
-          </FilterCard>
-          <FilterCard title="Tags" description={`${selectedTags.length} selected`}>
+          </FilterAccordionCard>
+          <FilterAccordionCard
+            title="Tags"
+            description={`${selectedTags.length} selected`}
+            icon={Tags}
+            open={openSections.tags}
+            onToggle={() => toggleSection('tags')}
+          >
             <PostTermFilterPanel
               emptyText="No post tags yet."
+              newLabel="New tag"
+              onAdd={onAddTag}
               onDelete={onDeleteTag}
               onSearch={onTagSearch}
               onToggle={onToggleTag}
+              onColorChange={onTagColorChange}
               placeholder="Search tags..."
               prefix="#"
               search={tagSearch}
               selected={selectedTags}
+              termColors={tagColors}
               terms={tags}
             />
-          </FilterCard>
-          <FilterCard title="Sort" description="Control ordering in card and table views.">
-            <select value={sort} onChange={(event) => onSortChange(event.target.value)} className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          </FilterAccordionCard>
+          <FilterAccordionCard
+            title="Sort"
+            description={activeSort}
+            icon={Table2}
+            open={openSections.sort}
+            onToggle={() => toggleSection('sort')}
+          >
+            <select value={sort} onChange={(event) => onSortChange(event.target.value)} className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
               {SORT_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-          </FilterCard>
+          </FilterAccordionCard>
         </div>
         <div className="flex justify-between gap-2 border-t border-slate-200 px-5 py-4 dark:border-slate-800">
           <Button type="button" variant="ghost" onClick={onReset}>Reset</Button>
@@ -421,21 +541,69 @@ function PostFilterDrawer({
   )
 }
 
-function FilterCard({ title, description, children }) {
+function FilterAccordionCard({ title, description, icon: Icon, open, onToggle, children }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/30">
-      <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
-      {description && <p className="-mt-2 mb-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>}
-      {children}
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/30">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/50"
+        aria-expanded={open}
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+            <Icon className="h-4 w-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold text-slate-900 dark:text-white">{title}</span>
+            <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{description}</span>
+          </span>
+        </span>
+        <X className={clsx('h-4 w-4 shrink-0 text-slate-400 transition', open ? 'rotate-45' : 'rotate-0')} />
+      </button>
+      {open && <div className="border-t border-slate-100 p-4 dark:border-slate-800">{children}</div>}
     </section>
   )
 }
 
-function PostTermFilterPanel({ emptyText, onDelete, onSearch, onToggle, placeholder, prefix = '', search, selected, terms }) {
+function PostTermFilterPanel({ emptyText, newLabel, onAdd, onColorChange, onDelete, onSearch, onToggle, placeholder, prefix = '', search, selected, termColors = {}, terms }) {
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
   const visibleTerms = terms.filter((term) => term.toLowerCase().includes(search.trim().toLowerCase()))
+
+  const submit = (event) => {
+    event.preventDefault()
+    const term = cleanPostTerm(draft)
+    if (!term || !onAdd?.(term)) return
+    setDraft('')
+    setAdding(false)
+  }
 
   return (
     <div className="space-y-3">
+      {onAdd && (
+        <div className="flex justify-end">
+          <Button type="button" size="sm" variant="secondary" onClick={() => setAdding((value) => !value)}>
+            <Plus className="h-3.5 w-3.5" /> {newLabel}
+          </Button>
+        </div>
+      )}
+      {adding && (
+        <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-slate-500 dark:text-slate-400">{newLabel}</span>
+            <div className="flex gap-2">
+              <input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder={`Add ${prefix ? 'tag' : 'category'} name`}
+                className="h-10 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+              <Button type="submit" size="sm">Add</Button>
+            </div>
+          </label>
+        </form>
+      )}
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
@@ -457,13 +625,27 @@ function PostTermFilterPanel({ emptyText, onDelete, onSearch, onToggle, placehol
           <div key={term} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
             <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
               <input type="checkbox" checked={selected.includes(term)} onChange={() => onToggle(term)} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+              {onColorChange && <span className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: normalizePostTagColor(termColors[term]) }} />}
               <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{prefix}{term}</span>
             </label>
-            {onDelete && (
-              <button type="button" onClick={() => onDelete(term)} className="ml-auto rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-300" aria-label={`Delete ${term}`} title={`Delete ${term}`}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              {onColorChange && (
+                <input
+                  type="color"
+                  value={normalizePostTagColor(termColors[term])}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => onColorChange(term, event.target.value)}
+                  className="h-7 w-8 cursor-pointer rounded border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900"
+                  title={`Color for ${term}`}
+                  aria-label={`Color for ${term}`}
+                />
+              )}
+              {onDelete && (
+                <button type="button" onClick={() => onDelete(term)} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-300" aria-label={`Delete ${term}`} title={`Delete ${term}`}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
@@ -471,8 +653,18 @@ function PostTermFilterPanel({ emptyText, onDelete, onSearch, onToggle, placehol
   )
 }
 
-function PostTermPopover({ open, title, icon: Icon, search, onSearch, placeholder, emptyText, terms, selected, onToggle, onDelete, onReset, onClose, prefix = '' }) {
+function PostTermPopover({ open, title, icon: Icon, search, onSearch, placeholder, emptyText, terms, selected, onToggle, onAdd, onDelete, onReset, onClose, prefix = '', termColors = {}, onColorChange }) {
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
   const visibleTerms = terms.filter((term) => term.toLowerCase().includes(search.trim().toLowerCase()))
+
+  const submit = (event) => {
+    event.preventDefault()
+    const term = cleanPostTerm(draft)
+    if (!term || !onAdd?.(term)) return
+    setDraft('')
+    setAdding(false)
+  }
 
   return (
     <div
@@ -492,10 +684,34 @@ function PostTermPopover({ open, title, icon: Icon, search, onSearch, placeholde
               <p className="text-xs text-slate-500 dark:text-slate-400">{selected.length} selected</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white sm:hidden" aria-label={`Close ${title.toLowerCase()} popup`}>
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onAdd && (
+              <Button type="button" size="sm" variant="secondary" onClick={() => setAdding((value) => !value)}>
+                <Plus className="h-3.5 w-3.5" /> {title === 'Categories' ? 'New category' : 'New tag'}
+              </Button>
+            )}
+            <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white sm:hidden" aria-label={`Close ${title.toLowerCase()} popup`}>
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
+
+        {adding && (
+          <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-500 dark:text-slate-400">{title === 'Categories' ? 'New category' : 'New tag'}</span>
+              <div className="flex gap-2">
+                <input
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder={`Add ${title === 'Categories' ? 'category' : 'tag'} name`}
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+                <Button type="submit" size="sm">Add</Button>
+              </div>
+            </label>
+          </form>
+        )}
 
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -516,13 +732,27 @@ function PostTermPopover({ open, title, icon: Icon, search, onSearch, placeholde
               <div key={term} className={clsx('flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition', checked ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-800 dark:bg-brand-950/30 dark:text-brand-200' : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800/60')}>
                 <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
                   <input type="checkbox" checked={checked} onChange={() => onToggle(term)} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+                  {onColorChange && <span className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: normalizePostTagColor(termColors[term]) }} />}
                   <span className="min-w-0 flex-1 truncate">{prefix}{term}</span>
                 </label>
-                {onDelete && (
-                  <button type="button" onClick={() => onDelete(term)} className="ml-auto rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-300" aria-label={`Delete ${term}`} title={`Delete ${term}`}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  {onColorChange && (
+                    <input
+                      type="color"
+                      value={normalizePostTagColor(termColors[term])}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => onColorChange(term, event.target.value)}
+                      className="h-7 w-8 cursor-pointer rounded border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900"
+                      title={`Color for ${term}`}
+                      aria-label={`Color for ${term}`}
+                    />
+                  )}
+                  {onDelete && (
+                    <button type="button" onClick={() => onDelete(term)} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-300" aria-label={`Delete ${term}`} title={`Delete ${term}`}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             )
           })}
@@ -694,10 +924,51 @@ function storePostTerms(key, terms) {
   localStorage.setItem(key, JSON.stringify(uniquePostTerms(terms)))
 }
 
+function loadPostTermColors(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function storePostTermColors(key, colors) {
+  localStorage.setItem(key, JSON.stringify(colors || {}))
+}
+
+function collectPostTagColors(posts) {
+  return (posts || []).reduce((colors, post) => {
+    Object.entries(post.options?.tag_colors || {}).forEach(([term, color]) => {
+      if (/^#[0-9a-f]{6}$/i.test(String(color || ''))) colors[term] = color
+    })
+    return colors
+  }, {})
+}
+
+function loadPostFilterSections() {
+  try {
+    return {
+      status: true,
+      account: true,
+      categories: true,
+      tags: true,
+      sort: true,
+      ...JSON.parse(localStorage.getItem('post_filter_sections') || '{}'),
+    }
+  } catch {
+    return { status: true, account: true, categories: true, tags: true, sort: true }
+  }
+}
+
+function cleanPostTerm(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ')
+}
+
 function uniquePostTerms(terms) {
   const seen = new Set()
   return (terms || []).reduce((items, value) => {
-    const term = String(value || '').trim().replace(/\s+/g, ' ')
+    const term = cleanPostTerm(value)
     const key = term.toLowerCase()
     if (!term || seen.has(key)) return items
     seen.add(key)
@@ -705,7 +976,13 @@ function uniquePostTerms(terms) {
   }, [])
 }
 
+const DEFAULT_POST_TAG_COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#a855f7']
+
+function normalizePostTagColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : DEFAULT_POST_TAG_COLORS[0]
+}
+
 function tagColorStyle(value) {
   if (!/^#[0-9a-f]{6}$/i.test(String(value || ''))) return undefined
-  return { backgroundColor: value }
+  return { backgroundColor: normalizePostTagColor(value) }
 }

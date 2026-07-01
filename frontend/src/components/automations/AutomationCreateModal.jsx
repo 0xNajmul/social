@@ -23,7 +23,10 @@ export default function AutomationCreateModal({ categories = [], open, onClose, 
       const { data } = await api.post('/automations', {
         name: form.name,
         description: form.description,
-        config: { category: form.category || '' },
+        config: {
+          category: form.category || '',
+          workflow: { nodes: [], edges: [] },
+        },
       })
       setForm({ ...INITIAL_FORM, category: '' })
       onCreated?.(data.data, form.category)

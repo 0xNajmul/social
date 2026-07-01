@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\AdminDashboardController;
 use App\Http\Controllers\Api\Admin\AdminContentController;
 use App\Http\Controllers\Api\Admin\AdminFeedController;
 use App\Http\Controllers\Api\Admin\AdminJobController;
+use App\Http\Controllers\Api\Admin\AdminNewsController;
 use App\Http\Controllers\Api\Admin\AdminPlanController;
 use App\Http\Controllers\Api\Admin\AdminPostController;
 use App\Http\Controllers\Api\Admin\AdminReportController;
@@ -22,10 +23,12 @@ use App\Http\Controllers\Api\DeveloperController;
 use App\Http\Controllers\Api\FeedController;
 use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\Api\MediaFolderController;
+use App\Http\Controllers\Api\NewsController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OAuthController;
 use App\Http\Controllers\Api\PlannerNoteController;
 use App\Http\Controllers\Api\PostController;
+use App\Http\Controllers\Api\PublicProfileController;
 use App\Http\Controllers\Api\PublicSettingController;
 use App\Http\Controllers\Api\SocialAccountController;
 use App\Http\Controllers\Api\TeamController;
@@ -43,7 +46,11 @@ Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
 Route::get('auth/google/redirect', [AuthController::class, 'googleRedirect']);
 Route::get('auth/google/callback', [AuthController::class, 'googleCallback']);
 Route::get('plans', [BillingController::class, 'plans']); // public pricing page
+Route::post('billing/webhooks/{provider}', [BillingController::class, 'webhook'])->where('provider', 'dodo|creem');
 Route::get('public/settings', [PublicSettingController::class, 'index']);
+Route::get('public/news', [NewsController::class, 'index']);
+Route::get('public/news/{newsPost:slug}', [NewsController::class, 'show']);
+Route::get('public/profiles/{handle}', [PublicProfileController::class, 'show']);
 Route::get('oauth/{provider}/callback', [OAuthController::class, 'callback']);
 
 /*
@@ -56,6 +63,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('me', [AuthController::class, 'me']);
     Route::post('profile', [AuthController::class, 'updateProfile']);
     Route::put('profile/password', [AuthController::class, 'updatePassword']);
+    Route::get('public-profile', [PublicProfileController::class, 'current']);
+    Route::put('public-profile', [PublicProfileController::class, 'update']);
 
     // Notifications (user scoped, no workspace required).
     Route::get('notifications', [NotificationController::class, 'index']);
@@ -142,6 +151,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Analytics
         Route::get('analytics/overview', [AnalyticsController::class, 'overview']);
+        Route::post('analytics/sync', [AnalyticsController::class, 'sync']);
 
         // Billing
         Route::get('billing/subscription', [BillingController::class, 'current']);
@@ -175,11 +185,28 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('roles', AdminRoleController::class)->except(['show']);
 
         Route::apiResource('plans', AdminPlanController::class)->except(['show']);
+        Route::apiResource('news', AdminNewsController::class)->except(['show']);
 
         Route::get('planners', [AdminContentController::class, 'planners']);
+        Route::post('planners', [AdminContentController::class, 'storePlanner']);
+        Route::get('planners/{plannerNote}', [AdminContentController::class, 'showPlanner']);
+        Route::put('planners/{plannerNote}', [AdminContentController::class, 'updatePlanner']);
+        Route::delete('planners/{plannerNote}', [AdminContentController::class, 'destroyPlanner']);
         Route::get('media', [AdminContentController::class, 'media']);
+        Route::post('media', [AdminContentController::class, 'storeMedia']);
+        Route::get('media/{mediaAsset}', [AdminContentController::class, 'showMedia']);
+        Route::put('media/{mediaAsset}', [AdminContentController::class, 'updateMedia']);
+        Route::delete('media/{mediaAsset}', [AdminContentController::class, 'destroyMedia']);
         Route::get('automations', [AdminContentController::class, 'automations']);
+        Route::post('automations', [AdminContentController::class, 'storeAutomation']);
+        Route::get('automations/{automation}', [AdminContentController::class, 'showAutomation']);
+        Route::put('automations/{automation}', [AdminContentController::class, 'updateAutomation']);
+        Route::delete('automations/{automation}', [AdminContentController::class, 'destroyAutomation']);
         Route::get('accounts', [AdminContentController::class, 'accounts']);
+        Route::post('accounts', [AdminContentController::class, 'storeAccount']);
+        Route::get('accounts/{socialAccount}', [AdminContentController::class, 'showAccount']);
+        Route::put('accounts/{socialAccount}', [AdminContentController::class, 'updateAccount']);
+        Route::delete('accounts/{socialAccount}', [AdminContentController::class, 'destroyAccount']);
         Route::get('feeds', [AdminFeedController::class, 'index']);
         Route::post('feeds', [AdminFeedController::class, 'store']);
         Route::put('feeds/{rssFeed}', [AdminFeedController::class, 'update']);
@@ -200,8 +227,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('settings', [AdminSettingController::class, 'index']);
         Route::put('settings', [AdminSettingController::class, 'update']);
         Route::post('settings/logo', [AdminSettingController::class, 'uploadLogo']);
+        Route::get('languages', [AdminSettingController::class, 'languages']);
+        Route::put('languages', [AdminSettingController::class, 'updateLanguages']);
+        Route::put('translations', [AdminSettingController::class, 'updateTranslations']);
+        Route::delete('translations', [AdminSettingController::class, 'deleteTranslation']);
+        Route::post('translations/sync', [AdminSettingController::class, 'syncTranslationsFromFiles']);
+        Route::get('settings/ai/providers', [AdminSettingController::class, 'aiProviders']);
+        Route::post('settings/ai/models/sync', [AdminSettingController::class, 'syncAiModels']);
 
         Route::get('jobs/scheduled', [AdminJobController::class, 'scheduled']);
+        Route::get('jobs/pending', [AdminJobController::class, 'pendingJobs']);
         Route::get('jobs/failed-posts', [AdminJobController::class, 'failedPosts']);
         Route::get('jobs/failed', [AdminJobController::class, 'failedJobs']);
         Route::post('jobs/retry-failed', [AdminJobController::class, 'retryFailedJobs']);
@@ -209,6 +244,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('reports/notifications', [AdminReportController::class, 'notifications']);
         Route::get('reports/affiliate-incomes', [AdminReportController::class, 'affiliateIncomes']);
         Route::get('reports/login-history', [AdminReportController::class, 'loginHistory']);
+        Route::get('reports/ai-usage', [AdminReportController::class, 'aiUsageHistory']);
         Route::get('reports/ai-usage-history', [AdminReportController::class, 'aiUsageHistory']);
         Route::get('reports/email-history', [AdminReportController::class, 'emailHistory']);
         Route::get('reports/user-transaction-history', [AdminReportController::class, 'userTransactionHistory']);

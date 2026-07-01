@@ -85,6 +85,21 @@ class TelegramService extends AbstractPlatformService
         string $caption,
         array $extra = [],
     ): PublishResult {
+        if ($file->url && filter_var($file->url, FILTER_VALIDATE_URL) && in_array(parse_url($file->url, PHP_URL_SCHEME), ['http', 'https'], true)) {
+            $fields = array_merge([
+                'chat_id' => $chatId,
+                $field => $file->url,
+            ], $extra);
+
+            if ($caption !== '') {
+                $fields['caption'] = $caption;
+            }
+
+            $response = Http::timeout(60)->post("{$base}/{$method}", $fields);
+
+            return $this->parseResponse($response, $chatId);
+        }
+
         $path = $file->absolutePath();
 
         if (! $path || ! is_readable($path)) {

@@ -7,13 +7,17 @@ import { mediaUrl } from '../lib/media'
 import { Card, Button, PageLoader, EmptyState, Input, ConfirmDialog, Modal } from '../components/ui'
 import { DATA_CHANGED_EVENT } from '../lib/appEvents'
 import useInfiniteList from '../hooks/useInfiniteList'
+import usePageSize from '../hooks/usePageSize'
 
 function isPreviewableImage(type) {
   return type === 'image' || type === 'gif'
 }
 
 export default function Media() {
+  const pageSize = usePageSize('media_assets', 36)
   const [assets, setAssets] = useState(null)
+  const [assetMeta, setAssetMeta] = useState(null)
+  const [loadingMoreAssets, setLoadingMoreAssets] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadQueue, setUploadQueue] = useState([])
   const [uploadPanelOpen, setUploadPanelOpen] = useState(true)
@@ -43,17 +47,33 @@ export default function Media() {
     return api.get('/media-folders').then(({ data }) => setFolders(data.data || [])).catch(() => setFolders([]))
   }, [])
 
-  const load = useCallback((query = search, folder = activeFolder) =>
-    api
+  const load = useCallback((query = search, folder = activeFolder, page = 1, append = false) => {
+    if (append) setLoadingMoreAssets(true)
+    return api
       .get('/media', {
         params: {
-          per_page: 100,
+          per_page: pageSize,
+          page,
           search: query.trim() || undefined,
           folder_id: folder === 'all' ? undefined : folder,
         },
       })
-      .then(({ data }) => setAssets(data.data))
-      .finally(() => setFolderContentLoading(false)), [activeFolder, search])
+      .then(({ data }) => {
+        const nextAssets = data.data || []
+        setAssets((current) => append ? [...(current || []), ...nextAssets] : nextAssets)
+        setAssetMeta(data.meta || null)
+      })
+      .catch(() => {
+        if (!append) {
+          setAssets([])
+          setAssetMeta(null)
+        }
+      })
+      .finally(() => {
+        setFolderContentLoading(false)
+        if (append) setLoadingMoreAssets(false)
+      })
+  }, [activeFolder, pageSize, search])
 
   useEffect(() => {
     loadFolders()
@@ -221,7 +241,18 @@ export default function Media() {
   }, [activeFolder, folderMap, folderTree])
   const allFileCount = folders.reduce((sum, folder) => sum + Number(folder.assets_count || 0), 0) || assets?.length || 0
   const sortedAssets = useMemo(() => sortAssets(assets || [], sortMode), [assets, sortMode])
-  const { hasMore, items: pagedAssets, sentinelRef } = useInfiniteList(sortedAssets)
+  const hasServerMore = Boolean(assetMeta && assetMeta.current_page < assetMeta.last_page)
+  const loadMoreAssets = useCallback(() => {
+    if (!hasServerMore || loadingMoreAssets) return
+    load(search, activeFolder, assetMeta.current_page + 1, true)
+  }, [activeFolder, assetMeta, hasServerMore, load, loadingMoreAssets, search])
+  const { hasMore, items: pagedAssets, sentinelRef } = useInfiniteList(sortedAssets, {
+    pageSize,
+    hasExternalMore: hasServerMore,
+    externalLoading: loadingMoreAssets,
+    onEndReached: loadMoreAssets,
+    resetKey: [search, activeFolder, sortMode].join('::'),
+  })
 
   useEffect(() => {
     if (activeFolder === 'all' || activeFolder === 'root') return

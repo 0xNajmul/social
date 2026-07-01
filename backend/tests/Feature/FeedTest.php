@@ -37,6 +37,37 @@ class FeedTest extends TestCase
             ->assertJsonPath('data.0.country', 'US');
     }
 
+    public function test_user_can_request_a_specific_number_of_latest_feed_items(): void
+    {
+        $user = $this->actingAsUser();
+        $workspace = $user->workspaces()->firstOrFail();
+        $feed = RssFeed::create([
+            'workspace_id' => $workspace->id,
+            'status' => 'active',
+            'title' => 'Latest Feed',
+            'url' => 'https://example.com/latest.xml',
+            'country' => 'Global',
+            'category' => 'News',
+            'last_fetched_at' => now(),
+        ]);
+
+        foreach (range(1, 5) as $index) {
+            $feed->items()->create([
+                'guid' => "story-{$index}",
+                'title' => "Story {$index}",
+                'link' => "https://example.com/story-{$index}",
+                'published_at' => now()->subMinutes($index),
+            ]);
+        }
+
+        $this->getJson('/api/feed/items?per_page=2', $this->workspaceHeaders($user))
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('meta.per_page', 2)
+            ->assertJsonPath('meta.total', 5)
+            ->assertJsonPath('data.0.title', 'Story 1');
+    }
+
     public function test_admin_can_manage_workspace_feeds(): void
     {
         $admin = User::factory()->create(['is_admin' => true]);

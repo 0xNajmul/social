@@ -65,13 +65,14 @@ class SocialAccountController extends Controller
     public function connect(Request $request): JsonResponse
     {
         $workspace = $request->attributes->get('workspace');
+        $platformAliases = array_keys($this->platformAliases());
         $data = $request->validate([
-            'platform' => ['required', 'string', 'in:'.implode(',', $this->manager->platforms())],
+            'platform' => ['required', 'string', 'in:'.implode(',', array_merge($this->manager->platforms(), $platformAliases))],
         ]);
 
         $this->usage->ensure($workspace, 'social_accounts');
 
-        $platform = $data['platform'];
+        $platform = $this->canonicalPlatform($data['platform']);
         if ($platform === 'youtube_shorts') {
             $platform = 'youtube';
         }
@@ -82,6 +83,16 @@ class SocialAccountController extends Controller
         if ($this->isDirectConnectPlatform($platform)
             || ($platform === 'pinterest' && ! empty($credentials['access_token']))) {
             return $this->connectDirectPlatform($request, $platform, $workspace->id, $request->user()->id);
+        }
+
+        if ($this->shouldConnectDemoAccount($platform, $credentials)) {
+            $account = $this->createDemoAccount($workspace->id, $platform, $request->user()->id);
+            $this->activity->log($workspace->id, 'account.connected', $account, "Connected {$account->name}");
+
+            return response()->json([
+                'mode' => 'demo',
+                'data' => new SocialAccountResource($account),
+            ], 201);
         }
 
         if ($platform === 'instagram' && (empty($credentials['client_id']) || empty($credentials['client_secret']))) {
@@ -411,6 +422,34 @@ class SocialAccountController extends Controller
             'token_expires_at' => now()->addDays(60),
             'status' => 'active',
         ]);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function platformAliases(): array
+    {
+        return [
+            'x' => 'twitter',
+            'thread' => 'threads',
+        ];
+    }
+
+    protected function canonicalPlatform(string $platform): string
+    {
+        return $this->platformAliases()[strtolower($platform)] ?? $platform;
+    }
+
+    protected function shouldConnectDemoAccount(string $platform, ?array $credentials): bool
+    {
+        if (! in_array($platform, ['twitter', 'reddit', 'threads', 'snapchat'], true)) {
+            return false;
+        }
+
+        $clientId = trim((string) ($credentials['client_id'] ?? ''));
+        $clientSecret = trim((string) ($credentials['client_secret'] ?? ''));
+
+        return $clientId === '' && $clientSecret === '';
     }
 
     protected function isDirectConnectPlatform(string $platform): bool

@@ -25,8 +25,8 @@ Schedule::command('posts:publish-due')
 // Retry transiently failed posts every five minutes.
 Schedule::command('posts:retry-failed')->everyFiveMinutes()->withoutOverlapping();
 
-// Run due automations (RSS, recycle, ...).
-Schedule::command('automations:run')->everyFiveMinutes()->withoutOverlapping();
+// Run due automations (RSS, visual workflows, recycle, ...).
+Schedule::command('automations:run')->everyMinute()->withoutOverlapping();
 
 // Refresh expiring OAuth tokens.
 Schedule::command('social:refresh-tokens')->hourly()->withoutOverlapping();

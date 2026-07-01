@@ -37,6 +37,7 @@ class FeedController extends Controller
     {
         $workspace = workspace();
         $this->refreshStaleFeeds($workspace, $request->boolean('refresh'));
+        $perPage = max(1, min($request->integer('per_page', 25), 100));
 
         $items = RssFeedItem::query()
             ->with('feed:id,workspace_id,title,url,country,category,status')
@@ -60,7 +61,8 @@ class FeedController extends Controller
             ->orderByRaw('published_at IS NULL')
             ->orderByDesc('published_at')
             ->latest('created_at')
-            ->paginate($request->integer('per_page', 60));
+            ->paginate($perPage)
+            ->withQueryString();
 
         return RssFeedItemResource::collection($items)->response();
     }

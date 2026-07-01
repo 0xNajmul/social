@@ -6,7 +6,15 @@ import { mediaUrl } from '../../lib/media'
 import { ACCEPTED_LABEL, ACCEPTED_MIME } from '../../lib/platformMedia'
 import { Button, Input, Modal } from '../ui'
 
-export default function MediaDropzone({ items, onChange, disabled }) {
+export default function MediaDropzone({
+  items,
+  onChange,
+  disabled,
+  accept = ACCEPTED_MIME,
+  acceptedLabel = ACCEPTED_LABEL,
+  multiple = true,
+  prompt = 'Drop images, videos, or files here',
+}) {
   const inputRef = useRef(null)
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -16,7 +24,7 @@ export default function MediaDropzone({ items, onChange, disabled }) {
 
   const uploadFiles = useCallback(
     async (fileList) => {
-      const files = [...fileList]
+      const files = multiple ? [...fileList] : [...fileList].slice(0, 1)
       if (!files.length || disabled) return
 
       setUploading(true)
@@ -74,7 +82,7 @@ export default function MediaDropzone({ items, onChange, disabled }) {
         setUploading(false)
       }
     },
-    [disabled, onChange],
+    [disabled, multiple, onChange],
   )
 
   const onDrop = (e) => {
@@ -142,8 +150,8 @@ export default function MediaDropzone({ items, onChange, disabled }) {
         <input
           ref={inputRef}
           type="file"
-          multiple
-          accept={ACCEPTED_MIME}
+          multiple={multiple}
+          accept={accept}
           className="hidden"
           onChange={(e) => {
             if (e.target.files?.length) uploadFiles(e.target.files)
@@ -154,9 +162,9 @@ export default function MediaDropzone({ items, onChange, disabled }) {
           {uploading ? <Loader2 className="h-7 w-7 animate-spin" /> : <Upload className="h-7 w-7" />}
         </div>
         <p className="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-100">
-          Drop images, videos, or files here
+          {prompt}
         </p>
-        <p className="mt-1 text-xs text-slate-500">or click to browse · {ACCEPTED_LABEL}</p>
+        <p className="mt-1 text-xs text-slate-500">or click to browse · {acceptedLabel}</p>
       </div>
 
       {items.length > 0 && (

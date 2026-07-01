@@ -29,6 +29,10 @@ const DEFAULT_ACCOUNT_SETTINGS = {
   two_step_authenticator: false,
 }
 
+const DEFAULT_LANGUAGE_OPTIONS = [
+  ['en', 'English'],
+]
+
 function buildAccountSettings(user) {
   return {
     ...DEFAULT_ACCOUNT_SETTINGS,
@@ -46,6 +50,7 @@ export default function Settings() {
   const [settings, setSettings] = useState(() => buildAccountSettings(user))
   const [subscription, setSubscription] = useState(undefined)
   const [usage, setUsage] = useState({})
+  const [languageOptions, setLanguageOptions] = useState(DEFAULT_LANGUAGE_OPTIONS)
   const [tab, setTab] = useState(() => TABS.some((item) => item.key === searchParams.get('tab')) ? searchParams.get('tab') : 'general')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
@@ -60,6 +65,14 @@ export default function Settings() {
         setSubscription(null)
         setUsage({})
       })
+  }, [])
+
+  useEffect(() => {
+    api.get('/public/settings')
+      .then(({ data }) => {
+        setLanguageOptions(languageOptionsFromSettings(data.data?.language, settings.language))
+      })
+      .catch(() => setLanguageOptions(languageOptionsFromSettings(null, settings.language)))
   }, [])
 
   const updateSetting = (field, value) => {
@@ -143,7 +156,7 @@ export default function Settings() {
           {tab === 'general' && (
             <>
               <SettingsCard icon={Settings2} title="General" description="Account language and planning defaults used across your workspaces.">
-                <Select label="Language" value={settings.language} onChange={(value) => updateSetting('language', value)} options={[['en', 'English'], ['bn', 'Bangla'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['ar', 'Arabic']]} />
+                <Select label="Language" value={settings.language} onChange={(value) => updateSetting('language', value)} options={languageOptions} />
                 <Select label="Week starts on" value={settings.week_starts_on} onChange={(value) => updateSetting('week_starts_on', value)} options={[['monday', 'Monday'], ['sunday', 'Sunday'], ['saturday', 'Saturday']]} />
                 <Input label="Default posting time" type="time" value={settings.default_post_time} onChange={(event) => updateSetting('default_post_time', event.target.value)} />
                 <HelpCard title="Workspace settings" text="Workspace name, brand color, role access, and workspace-specific notifications live on each workspace edit page." />
@@ -271,4 +284,17 @@ function SwitchRow({ label, description, checked, onChange }) {
       </button>
     </div>
   )
+}
+
+function languageOptionsFromSettings(language, currentLanguage) {
+  const configured = Array.isArray(language?.languages)
+    ? language.languages.map((item) => [item.code, item.native_name || item.name || item.code]).filter(([code]) => code)
+    : []
+  const options = configured.length ? configured : DEFAULT_LANGUAGE_OPTIONS
+
+  if (currentLanguage && !options.some(([code]) => code === currentLanguage)) {
+    return [[currentLanguage, currentLanguage.toUpperCase()], ...options]
+  }
+
+  return options
 }
